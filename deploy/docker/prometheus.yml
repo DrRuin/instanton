@@ -1,0 +1,16 @@
+# Prometheus configuration for Tachyon monitoring
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'tachyon-server'
+    static_configs:
+      - targets: ['tachyon-server:9090']
+    metrics_path: /metrics
+    scheme: http
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

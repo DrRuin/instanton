@@ -1,0 +1,66 @@
+# Tachyon Services
+---
+# HTTPS Service (Public Traffic)
+apiVersion: v1
+kind: Service
+metadata:
+  name: tachyon-https
+  namespace: tachyon
+  labels:
+    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/component: server
+spec:
+  type: LoadBalancer
+  ports:
+    - name: https
+      port: 443
+      targetPort: 443
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/component: server
+
+---
+# Control Plane Service (Tunnel Clients)
+apiVersion: v1
+kind: Service
+metadata:
+  name: tachyon-control
+  namespace: tachyon
+  labels:
+    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/component: server
+spec:
+  type: LoadBalancer
+  ports:
+    - name: control
+      port: 8443
+      targetPort: 8443
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/component: server
+
+---
+# Metrics Service (Internal)
+apiVersion: v1
+kind: Service
+metadata:
+  name: tachyon-metrics
+  namespace: tachyon
+  labels:
+    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/component: server
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9090"
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/component: server

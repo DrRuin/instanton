@@ -1,0 +1,64 @@
+# Tachyon Ingress (Optional - for ingress controller)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tachyon
+  namespace: tachyon
+  labels:
+    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/component: server
+  annotations:
+    # Nginx Ingress
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/websocket-services: "tachyon-control"
+
+    # For cert-manager (auto TLS)
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - "*.tunnel.example.com"
+        - "tunnel.example.com"
+      secretName: tachyon-tls
+  rules:
+    # Wildcard for tunnel subdomains
+    - host: "*.tunnel.example.com"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tachyon-https
+                port:
+                  number: 443
+
+    # Control plane for tunnel clients
+    - host: "tunnel.example.com"
+      http:
+        paths:
+          - path: /tunnel
+            pathType: Prefix
+            backend:
+              service:
+                name: tachyon-control
+                port:
+                  number: 8443
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: tachyon-control
+                port:
+                  number: 8443
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tachyon-https
+                port:
+                  number: 443

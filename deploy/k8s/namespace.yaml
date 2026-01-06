@@ -1,0 +1,8 @@
+# Tachyon Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tachyon
+  labels:
+    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/part-of: tachyon

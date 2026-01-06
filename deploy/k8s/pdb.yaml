@@ -1,0 +1,16 @@
+# Tachyon Pod Disruption Budget
+# Ensures high availability during cluster updates
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: tachyon-server
+  namespace: tachyon
+  labels:
+    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/component: server
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tachyon
+      app.kubernetes.io/component: server
