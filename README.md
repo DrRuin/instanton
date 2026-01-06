@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="tachyon_logo.png" alt="Tachyon" width="180"/>
+  <img src="tachyon_logo.png" alt="Tachyon" width="500"/>
 </p>
 
 <h1 align="center">Tachyon</h1>
