@@ -1,13 +1,13 @@
-# Prometheus configuration for Tachyon monitoring
+# Prometheus configuration for Instanton monitoring
 
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: 'tachyon-server'
+  - job_name: 'instanton-server'
     static_configs:
-      - targets: ['tachyon-server:9090']
+      - targets: ['instanton-server:9090']
     metrics_path: /metrics
     scheme: http
 

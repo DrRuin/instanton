@@ -1,24 +1,24 @@
 <p align="center">
-  <img src="tachyon_logo.png" alt="Tachyon" width="100%"/>
+  <img src="instanton_logo.png" alt="Instanton" width="100%"/>
 </p>
 
 <p align="center">
-  <a href="https://pypi.org/project/tachyon/"><img src="https://img.shields.io/pypi/v/tachyon.svg?style=for-the-badge&logo=pypi&logoColor=white&color=3775A9" alt="PyPI"/></a>
-  <a href="https://pypi.org/project/tachyon/"><img src="https://img.shields.io/pypi/pyversions/tachyon.svg?style=for-the-badge&logo=python&logoColor=white" alt="Python"/></a>
-  <a href="https://github.com/DrRuin/tachyon/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge" alt="License"/></a>
-  <a href="https://github.com/DrRuin/tachyon/actions"><img src="https://img.shields.io/github/actions/workflow/status/DrRuin/tachyon/ci.yml?style=for-the-badge&logo=github" alt="CI"/></a>
-  <a href="https://github.com/DrRuin/tachyon/stargazers"><img src="https://img.shields.io/github/stars/DrRuin/tachyon?style=for-the-badge&logo=github&color=yellow" alt="Stars"/></a>
+  <a href="https://pypi.org/project/instanton/"><img src="https://img.shields.io/pypi/v/instanton.svg?style=for-the-badge&logo=pypi&logoColor=white&color=3775A9" alt="PyPI"/></a>
+  <a href="https://pypi.org/project/instanton/"><img src="https://img.shields.io/pypi/pyversions/instanton.svg?style=for-the-badge&logo=python&logoColor=white" alt="Python"/></a>
+  <a href="https://github.com/DrRuin/instanton/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg?style=for-the-badge" alt="License"/></a>
+  <a href="https://github.com/DrRuin/instanton/actions"><img src="https://img.shields.io/github/actions/workflow/status/DrRuin/instanton/ci.yml?style=for-the-badge&logo=github" alt="CI"/></a>
+  <a href="https://github.com/DrRuin/instanton/stargazers"><img src="https://img.shields.io/github/stars/DrRuin/instanton?style=for-the-badge&logo=github&color=yellow" alt="Stars"/></a>
 </p>
 
 <h1 align="center">
   <br>
-  Faster-than-light tunneling
+  Tunnel through barriers, instantly
   <br>
 </h1>
 
 <h3 align="center">
   Expose localhost to the internet. One command. Zero config.<br/>
-  <sub>Open source • Self-hostable • Enterprise security • Free forever</sub>
+  <sub>Open source - Self-hostable - Enterprise security - Free forever</sub>
 </h3>
 
 <br/>
@@ -34,7 +34,7 @@
 <br/>
 
 ```bash
-pip install tachyon && tachyon --port 8000
+pip install instanton && instanton --port 8000
 ```
 
 <p align="center">
@@ -44,11 +44,11 @@ pip install tachyon && tachyon --port 8000
 <br/>
 
 <p align="center">
-  <a href="#-quick-start">Quick Start</a> •
-  <a href="#-why-tachyon">Why Tachyon</a> •
-  <a href="#-features">Features</a> •
-  <a href="#-benchmarks">Benchmarks</a> •
-  <a href="#-deployment">Deployment</a> •
+  <a href="#-quick-start">Quick Start</a> -
+  <a href="#-why-instanton">Why Instanton</a> -
+  <a href="#-features">Features</a> -
+  <a href="#-benchmarks">Benchmarks</a> -
+  <a href="#-deployment">Deployment</a> -
   <a href="#-docs">Docs</a>
 </p>
 
@@ -68,20 +68,20 @@ You're building something awesome on `localhost:8000`. Now you need to:
 
 **The old way:** Port forwarding, firewall rules, dynamic DNS, SSL certificates, nginx configs...
 
-**The Tachyon way:**
+**The Instanton way:**
 
 ```bash
-tachyon --port 8000
+instanton --port 8000
 ```
 
 ```
-  ⚡ Tachyon v1.0.0
+  ⚡ Instanton v1.0.0
 
   ✓ Tunnel established
   ✓ HTTPS certificate provisioned
 
-  Public URL:  https://abc123.tachyon.dev
-  Forwarding:  https://abc123.tachyon.dev → http://localhost:8000
+  Public URL:  https://abc123.instanton.dev
+  Forwarding:  https://abc123.instanton.dev → http://localhost:8000
 
   Inspector:   http://localhost:4040
 
@@ -94,7 +94,7 @@ tachyon --port 8000
 
 <br/>
 
-## Why Tachyon?
+## Why Instanton?
 
 <br/>
 
@@ -114,7 +114,7 @@ tachyon --port 8000
 </td>
 <td width="50%">
 
-### Tachyon gives you free. Forever.
+### Instanton gives you free. Forever.
 
 Plus:
 - **Zero Trust security**
@@ -134,7 +134,7 @@ Plus:
 
 <div align="center">
 
-|  | **Tachyon** | ngrok | Cloudflare Tunnel | tunnelto |
+|  | **Instanton** | ngrok | Cloudflare Tunnel | tunnelto |
 |:--|:--:|:--:|:--:|:--:|
 | Open Source | ✅ Full | ❌ | ❌ | ✅ |
 | Self-Hostable | ✅ | ❌ | ❌ | ✅ |
@@ -164,58 +164,58 @@ Plus:
 ### Installation
 
 ```bash
-pip install tachyon
+pip install instanton
 ```
 
 ### HTTP Tunnel
 
 ```bash
 # Basic - expose port 8000
-tachyon --port 8000
+instanton --port 8000
 
 # Custom subdomain
-tachyon --port 8000 --subdomain myapp
+instanton --port 8000 --subdomain myapp
 
 # With traffic inspector
-tachyon --port 8000 --inspect
+instanton --port 8000 --inspect
 ```
 
 ### TCP Tunnel (Databases, SSH)
 
 ```bash
 # PostgreSQL
-tachyon tcp 5432
+instanton tcp 5432
 
 # MySQL
-tachyon tcp 3306
+instanton tcp 3306
 
 # SSH
-tachyon tcp 22
+instanton tcp 22
 ```
 
 ### UDP Tunnel (Gaming, VoIP, DNS)
 
 ```bash
 # Game server
-tachyon udp 27015
+instanton udp 27015
 
 # DNS
-tachyon udp 53
+instanton udp 53
 ```
 
 ### Python SDK
 
 ```python
-import tachyon
+import instanton
 
 # Async context manager
-async with tachyon.forward(8000) as tunnel:
+async with instanton.forward(8000) as tunnel:
     print(f"Public URL: {tunnel.url}")
     # Your app is now accessible at tunnel.url
     await your_app.run()
 
 # Sync API
-tunnel = tachyon.forward_sync(8000)
+tunnel = instanton.forward_sync(8000)
 print(tunnel.url)
 ```
 
@@ -223,7 +223,7 @@ print(tunnel.url)
 
 ```bash
 # No timeout - perfect for AI inference, video streaming
-tachyon --port 8000 --no-request-timeout
+instanton --port 8000 --no-request-timeout
 ```
 
 <br/>
@@ -340,13 +340,13 @@ tachyon --port 8000 --no-request-timeout
 
 <div align="center">
 
-| Metric | Tachyon | ngrok | Cloudflare | Winner |
+| Metric | Instanton | ngrok | Cloudflare | Winner |
 |:--|:--:|:--:|:--:|:--:|
-| **Latency** | 5ms | 15ms | 10ms | 🏆 Tachyon |
-| **Throughput** | 1.2 Gbps | 500 Mbps | 1 Gbps | 🏆 Tachyon |
-| **Connections/sec** | 6,500 | 1,000 | 3,000 | 🏆 Tachyon |
+| **Latency** | 5ms | 15ms | 10ms | 🏆 Instanton |
+| **Throughput** | 1.2 Gbps | 500 Mbps | 1 Gbps | 🏆 Instanton |
+| **Connections/sec** | 6,500 | 1,000 | 3,000 | 🏆 Instanton |
 | **Memory (idle)** | 35 MB | 50 MB | 30 MB | Cloudflare |
-| **Cold Start** | 250ms | 2s | 3s | 🏆 Tachyon |
+| **Cold Start** | 250ms | 2s | 3s | 🏆 Instanton |
 
 </div>
 
@@ -356,7 +356,7 @@ tachyon --port 8000 --no-request-timeout
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     TACHYON ARCHITECTURE                        │
+│                     INSTANTON ARCHITECTURE                       │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                 │
 │   Client                    Relay Server              Origin    │
@@ -456,12 +456,12 @@ Basic auth
 ```bash
 # Run the relay server
 docker run -d \
-  --name tachyon-server \
+  --name instanton-server \
   -p 443:443 \
   -p 80:80 \
-  -e TACHYON_DOMAIN=tunnel.example.com \
-  -v tachyon-certs:/app/certs \
-  ghcr.io/drruin/tachyon-server:latest
+  -e INSTANTON_DOMAIN=tunnel.example.com \
+  -v instanton-certs:/app/certs \
+  ghcr.io/drruin/instanton-server:latest
 ```
 
 ### Docker Compose
@@ -469,13 +469,13 @@ docker run -d \
 ```yaml
 version: '3.8'
 services:
-  tachyon:
-    image: ghcr.io/drruin/tachyon-server:latest
+  instanton:
+    image: ghcr.io/drruin/instanton-server:latest
     ports:
       - "443:443"
       - "80:80"
     environment:
-      - TACHYON_DOMAIN=tunnel.example.com
+      - INSTANTON_DOMAIN=tunnel.example.com
     volumes:
       - certs:/app/certs
     restart: unless-stopped
@@ -488,11 +488,11 @@ volumes:
 
 ```bash
 # Add the Helm repository
-helm repo add tachyon https://drruin.github.io/tachyon
+helm repo add instanton https://drruin.github.io/instanton
 helm repo update
 
 # Install
-helm install tachyon tachyon/tachyon-server \
+helm install instanton instanton/instanton-server \
   --set domain=tunnel.example.com \
   --set ingress.enabled=true
 ```
@@ -500,7 +500,7 @@ helm install tachyon tachyon/tachyon-server \
 ### Kubernetes (Manual)
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/DrRuin/tachyon/main/deploy/k8s/
+kubectl apply -f https://raw.githubusercontent.com/DrRuin/instanton/main/deploy/k8s/
 ```
 
 <br/>
@@ -514,7 +514,7 @@ kubectl apply -f https://raw.githubusercontent.com/DrRuin/tachyon/main/deploy/k8
 ### CLI Options
 
 ```bash
-tachyon --help
+instanton --help
 
 Options:
   --port INTEGER          Local port to expose [required]
@@ -534,17 +534,17 @@ Options:
 ### Environment Variables
 
 ```bash
-export TACHYON_SERVER=relay.example.com
-export TACHYON_AUTH_TOKEN=your-token
-export TACHYON_DOMAIN=tunnel.example.com
-export TACHYON_LOG_LEVEL=info
+export INSTANTON_SERVER=relay.example.com
+export INSTANTON_AUTH_TOKEN=your-token
+export INSTANTON_DOMAIN=tunnel.example.com
+export INSTANTON_LOG_LEVEL=info
 ```
 
-### Config File (tachyon.yaml)
+### Config File (instanton.yaml)
 
 ```yaml
 server: relay.example.com
-auth_token: ${TACHYON_AUTH_TOKEN}
+auth_token: ${INSTANTON_AUTH_TOKEN}
 
 tunnels:
   web:
@@ -571,8 +571,8 @@ tunnels:
 
 ```bash
 # Clone the repository
-git clone https://github.com/DrRuin/tachyon.git
-cd tachyon
+git clone https://github.com/DrRuin/instanton.git
+cd instanton
 
 # Install development dependencies
 pip install -e ".[dev]"
@@ -581,7 +581,7 @@ pip install -e ".[dev]"
 pytest tests/ -v
 
 # Run with coverage
-pytest tests/ -v --cov=tachyon --cov-report=html
+pytest tests/ -v --cov=instanton --cov-report=html
 
 # Run specific test categories
 pytest tests/test_protocol.py -v
@@ -601,8 +601,8 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ```bash
 # Fork and clone
-git clone https://github.com/YOUR_USERNAME/tachyon.git
-cd tachyon
+git clone https://github.com/YOUR_USERNAME/instanton.git
+cd instanton
 
 # Create a branch
 git checkout -b feature/amazing-feature
@@ -662,10 +662,10 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 <p align="center">
   <strong>
-    <a href="https://github.com/DrRuin/tachyon">GitHub</a> •
-    <a href="https://pypi.org/project/tachyon/">PyPI</a> •
-    <a href="https://github.com/DrRuin/tachyon/issues">Issues</a> •
-    <a href="https://github.com/DrRuin/tachyon/discussions">Discussions</a>
+    <a href="https://github.com/DrRuin/instanton">GitHub</a> -
+    <a href="https://pypi.org/project/instanton/">PyPI</a> -
+    <a href="https://github.com/DrRuin/instanton/issues">Issues</a> -
+    <a href="https://github.com/DrRuin/instanton/discussions">Discussions</a>
   </strong>
 </p>
 
@@ -680,10 +680,10 @@ MIT License - see [LICENSE](LICENSE) for details.
 <br/>
 
 <p align="center">
-  <a href="https://github.com/DrRuin/tachyon/stargazers">
-    <img src="https://img.shields.io/github/stars/DrRuin/tachyon?style=social" alt="Stars"/>
+  <a href="https://github.com/DrRuin/instanton/stargazers">
+    <img src="https://img.shields.io/github/stars/DrRuin/instanton?style=social" alt="Stars"/>
   </a>
-  <a href="https://github.com/DrRuin/tachyon/network/members">
-    <img src="https://img.shields.io/github/forks/DrRuin/tachyon?style=social" alt="Forks"/>
+  <a href="https://github.com/DrRuin/instanton/network/members">
+    <img src="https://img.shields.io/github/forks/DrRuin/instanton?style=social" alt="Forks"/>
   </a>
 </p>

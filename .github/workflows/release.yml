@@ -30,7 +30,7 @@ jobs:
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         # Uses trusted publishing - no API token needed!
-        # Configure at: https://pypi.org/manage/project/tachyon/settings/publishing/
+        # Configure at: https://pypi.org/manage/project/instanton/settings/publishing/
 
   docker:
     runs-on: ubuntu-latest
@@ -69,8 +69,8 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            tachyon/tachyon:${{ steps.version.outputs.VERSION }}
-            tachyon/tachyon:latest
+            instanton/instanton:${{ steps.version.outputs.VERSION }}
+            instanton/instanton:latest
             ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}
             ghcr.io/${{ github.repository }}:latest
           cache-from: type=gha
@@ -83,8 +83,8 @@ jobs:
           file: ./Dockerfile.server
           push: true
           tags: |
-            tachyon/tachyon-server:${{ steps.version.outputs.VERSION }}
-            tachyon/tachyon-server:latest
+            instanton/instanton-server:${{ steps.version.outputs.VERSION }}
+            instanton/instanton-server:latest
             ghcr.io/${{ github.repository }}-server:${{ steps.version.outputs.VERSION }}
             ghcr.io/${{ github.repository }}-server:latest
           cache-from: type=gha

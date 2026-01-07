@@ -1,23 +1,23 @@
-# Tachyon Configuration
+# Instanton Configuration
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: tachyon-config
-  namespace: tachyon
+  name: instanton-config
+  namespace: instanton
   labels:
-    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/name: instanton
     app.kubernetes.io/component: server
 data:
   # Server configuration
-  TACHYON_DOMAIN: "tunnel.example.com"
-  TACHYON_LOG_LEVEL: "info"
-  TACHYON_MAX_TUNNELS: "1000"
-  TACHYON_IDLE_TIMEOUT: "3600"
+  INSTANTON_DOMAIN: "tunnel.example.com"
+  INSTANTON_LOG_LEVEL: "info"
+  INSTANTON_MAX_TUNNELS: "1000"
+  INSTANTON_IDLE_TIMEOUT: "3600"
 
   # Control plane
-  TACHYON_CONTROL_BIND: "0.0.0.0:8443"
-  TACHYON_HTTPS_BIND: "0.0.0.0:443"
+  INSTANTON_CONTROL_BIND: "0.0.0.0:8443"
+  INSTANTON_HTTPS_BIND: "0.0.0.0:443"
 
   # Metrics
-  TACHYON_METRICS_ENABLED: "true"
-  TACHYON_METRICS_PORT: "9090"
+  INSTANTON_METRICS_ENABLED: "true"
+  INSTANTON_METRICS_PORT: "9090"

@@ -3,7 +3,7 @@
 
 import pytest
 
-from tachyon.core.loadbalancer import (
+from instanton.core.loadbalancer import (
     Backend,
     BackendHealth,
     BackendPool,

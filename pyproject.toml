@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "tachyon"
+name = "instanton"
 version = "0.1.0"
-description = "Faster-than-light tunneling - expose local services to the internet instantly"
+description = "Tunnel through barriers, instantly - expose local services to the internet"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.11"
 authors = [
-    { name = "Tachyon Contributors" }
+    { name = "Instanton Contributors" }
 ]
 keywords = ["tunnel", "networking", "proxy", "https", "localhost", "ngrok"]
 classifiers = [
@@ -92,18 +92,18 @@ dev = [
 ]
 
 [project.scripts]
-tachyon = "tachyon.cli:main"
-tachyon-server = "tachyon.server.main:main"
+instanton = "instanton.cli:main"
+instanton-server = "instanton.server.main:main"
 
 [project.urls]
-Homepage = "https://github.com/DrRuin/tachyon"
-Documentation = "https://github.com/DrRuin/tachyon#readme"
-Repository = "https://github.com/DrRuin/tachyon"
-Issues = "https://github.com/DrRuin/tachyon/issues"
-Changelog = "https://github.com/DrRuin/tachyon/releases"
+Homepage = "https://github.com/DrRuin/instanton"
+Documentation = "https://github.com/DrRuin/instanton#readme"
+Repository = "https://github.com/DrRuin/instanton"
+Issues = "https://github.com/DrRuin/instanton/issues"
+Changelog = "https://github.com/DrRuin/instanton/releases"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tachyon"]
+packages = ["src/instanton"]
 
 [tool.ruff]
 target-version = "py311"
@@ -114,7 +114,7 @@ select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 
 [tool.ruff.lint.per-file-ignores]
 # Inspector server contains embedded HTML/JS templates that can't be broken into shorter lines
-"src/tachyon/inspector/server.py" = ["E501"]
+"src/instanton/inspector/server.py" = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -160,14 +160,14 @@ ignore_errors = true
 # Modules with complex third-party dependencies
 [[tool.mypy.overrides]]
 module = [
-    "tachyon.security.tls",
-    "tachyon.security.mtls",
-    "tachyon.security.certificates",
-    "tachyon.observability.tracing",
-    "tachyon.core.fast_transport",
-    "tachyon.core.protocols",
-    "tachyon.auth.middleware",
-    "tachyon.auth.providers",
+    "instanton.security.tls",
+    "instanton.security.mtls",
+    "instanton.security.certificates",
+    "instanton.observability.tracing",
+    "instanton.core.fast_transport",
+    "instanton.core.protocols",
+    "instanton.auth.middleware",
+    "instanton.auth.providers",
 ]
 ignore_errors = true
 
@@ -181,3 +181,6 @@ filterwarnings = [
     "ignore:coroutine 'start_tcp_tunnel_cli' was never awaited:RuntimeWarning",
     "ignore:coroutine 'start_udp_tunnel_cli' was never awaited:RuntimeWarning",
 ]
+
+[tool.hatch.metadata]
+allow-direct-references = true

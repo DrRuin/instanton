@@ -1,4 +1,4 @@
-"""Tests for Tachyon SDK - embeddable tunnel API."""
+"""Tests for Instanton SDK - embeddable tunnel API."""
 
 from __future__ import annotations
 
@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tachyon.sdk import (
+from instanton.sdk import (
+    InstantonConfig,
     Listener,
-    TachyonConfig,
     TunnelStats,
     _sanitize_subdomain,
     _suggest_subdomain,
@@ -128,12 +128,12 @@ class TestSubdomainSuggestion:
         assert result is not None
 
 
-class TestTachyonConfig:
-    """Tests for TachyonConfig."""
+class TestInstantonConfig:
+    """Tests for InstantonConfig."""
 
     def test_default_values(self):
         """Test default configuration values."""
-        cfg = TachyonConfig()
+        cfg = InstantonConfig()
         assert cfg.auto_reconnect is True
         assert cfg.use_quic is True
         assert cfg.connect_timeout == 10.0
@@ -142,7 +142,7 @@ class TestTachyonConfig:
 
     def test_configure_updates_values(self):
         """Test that configure() updates values."""
-        cfg = TachyonConfig()
+        cfg = InstantonConfig()
         cfg.configure(
             server="custom.server.com:443",
             auth_token="test-token",
@@ -159,7 +159,7 @@ class TestTachyonConfig:
 
     def test_configure_partial_update(self):
         """Test that configure() only updates provided values."""
-        cfg = TachyonConfig()
+        cfg = InstantonConfig()
         original_timeout = cfg.connect_timeout
 
         cfg.configure(server="new.server.com")
@@ -213,14 +213,14 @@ class TestListener:
     def test_listener_properties(self, mock_client):
         """Test Listener property access."""
         listener = Listener(
-            url="https://test-app.tachyon.dev",
+            url="https://test-app.instanton.dev",
             subdomain="test-app",
             local_port=8000,
             tunnel_id="test-id-123",
             _client=mock_client,
         )
 
-        assert listener.url == "https://test-app.tachyon.dev"
+        assert listener.url == "https://test-app.instanton.dev"
         assert listener.subdomain == "test-app"
         assert listener.local_port == 8000
         assert listener.tunnel_id == "test-id-123"
@@ -229,7 +229,7 @@ class TestListener:
     def test_listener_stats(self, mock_client):
         """Test Listener stats property."""
         listener = Listener(
-            url="https://test-app.tachyon.dev",
+            url="https://test-app.instanton.dev",
             subdomain="test-app",
             local_port=8000,
             tunnel_id="test-id-123",
@@ -245,7 +245,7 @@ class TestListener:
     async def test_listener_close(self, mock_client):
         """Test Listener close method."""
         listener = Listener(
-            url="https://test-app.tachyon.dev",
+            url="https://test-app.instanton.dev",
             subdomain="test-app",
             local_port=8000,
             tunnel_id="test-id-123",
@@ -259,7 +259,7 @@ class TestListener:
     async def test_listener_context_manager(self, mock_client):
         """Test Listener as async context manager."""
         listener = Listener(
-            url="https://test-app.tachyon.dev",
+            url="https://test-app.instanton.dev",
             subdomain="test-app",
             local_port=8000,
             tunnel_id="test-id-123",
@@ -290,8 +290,8 @@ class TestSetHelpers:
         """Test set_server updates config."""
         original = config.server
         try:
-            set_server("custom.tachyon.io:8443")
-            assert config.server == "custom.tachyon.io:8443"
+            set_server("custom.instanton.io:8443")
+            assert config.server == "custom.instanton.io:8443"
         finally:
             config.server = original
 
@@ -302,9 +302,9 @@ class TestForwardFunction:
     @pytest.mark.asyncio
     async def test_forward_creates_listener(self):
         """Test that forward() creates and returns a Listener."""
-        with patch("tachyon.sdk.TunnelClient") as mock_client_class:
+        with patch("instanton.sdk.TunnelClient") as mock_client_class:
             mock_client = MagicMock()
-            mock_client.connect = AsyncMock(return_value="https://test.tachyon.dev")
+            mock_client.connect = AsyncMock(return_value="https://test.instanton.dev")
             mock_client.run = AsyncMock()
             mock_client._subdomain = "test"
             mock_client._tunnel_id = "id-123"
@@ -315,16 +315,16 @@ class TestForwardFunction:
 
             listener = await forward(8000, subdomain="test", suggest_subdomain=False)
 
-            assert listener.url == "https://test.tachyon.dev"
+            assert listener.url == "https://test.instanton.dev"
             assert listener.local_port == 8000
             mock_client.connect.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_forward_with_string_port(self):
         """Test forward() accepts string port."""
-        with patch("tachyon.sdk.TunnelClient") as mock_client_class:
+        with patch("instanton.sdk.TunnelClient") as mock_client_class:
             mock_client = MagicMock()
-            mock_client.connect = AsyncMock(return_value="https://test.tachyon.dev")
+            mock_client.connect = AsyncMock(return_value="https://test.instanton.dev")
             mock_client.run = AsyncMock()
             mock_client._subdomain = "test"
             mock_client._tunnel_id = "id-123"
@@ -351,9 +351,9 @@ class TestForwardFunction:
             nonlocal disconnect_called
             disconnect_called = True
 
-        with patch("tachyon.sdk.TunnelClient") as mock_client_class:
+        with patch("instanton.sdk.TunnelClient") as mock_client_class:
             mock_client = MagicMock()
-            mock_client.connect = AsyncMock(return_value="https://test.tachyon.dev")
+            mock_client.connect = AsyncMock(return_value="https://test.instanton.dev")
             mock_client.run = AsyncMock()
             mock_client._subdomain = "test"
             mock_client._tunnel_id = "id-123"
@@ -377,23 +377,23 @@ class TestForwardFunction:
 class TestModuleImports:
     """Tests for module-level imports and exports."""
 
-    def test_tachyon_module_exports(self):
-        """Test that tachyon module exports SDK functions."""
-        import tachyon
+    def test_instanton_module_exports(self):
+        """Test that instanton module exports SDK functions."""
+        import instanton
 
         # These should all be accessible
-        assert hasattr(tachyon, "forward")
-        assert hasattr(tachyon, "connect")
-        assert hasattr(tachyon, "listen")
-        assert hasattr(tachyon, "Listener")
-        assert hasattr(tachyon, "config")
-        assert hasattr(tachyon, "set_auth_token")
-        assert hasattr(tachyon, "set_server")
-        assert hasattr(tachyon, "__version__")
+        assert hasattr(instanton, "forward")
+        assert hasattr(instanton, "connect")
+        assert hasattr(instanton, "listen")
+        assert hasattr(instanton, "Listener")
+        assert hasattr(instanton, "config")
+        assert hasattr(instanton, "set_auth_token")
+        assert hasattr(instanton, "set_server")
+        assert hasattr(instanton, "__version__")
 
     def test_sdk_all_exports(self):
         """Test SDK __all__ list."""
-        from tachyon import sdk
+        from instanton import sdk
 
         expected = [
             "forward",
@@ -402,7 +402,7 @@ class TestModuleImports:
             "listen",
             "Listener",
             "TunnelStats",
-            "TachyonConfig",
+            "InstantonConfig",
             "config",
             "set_auth_token",
             "set_server",
@@ -416,33 +416,33 @@ class TestEnvironmentVariables:
     """Tests for environment variable handling."""
 
     def test_default_server_from_env(self, monkeypatch):
-        """Test that TACHYON_SERVER env var is used."""
-        monkeypatch.setenv("TACHYON_SERVER", "custom.server.com:443")
+        """Test that INSTANTON_SERVER env var is used."""
+        monkeypatch.setenv("INSTANTON_SERVER", "custom.server.com:443")
 
         # Re-import to pick up env var
         import importlib
 
-        from tachyon import sdk
+        from instanton import sdk
         importlib.reload(sdk)
 
         assert sdk.DEFAULT_SERVER == "custom.server.com:443"
 
         # Reset
-        monkeypatch.delenv("TACHYON_SERVER", raising=False)
+        monkeypatch.delenv("INSTANTON_SERVER", raising=False)
         importlib.reload(sdk)
 
     def test_default_auth_token_from_env(self, monkeypatch):
-        """Test that TACHYON_AUTH_TOKEN env var is used."""
-        monkeypatch.setenv("TACHYON_AUTH_TOKEN", "env-token-123")
+        """Test that INSTANTON_AUTH_TOKEN env var is used."""
+        monkeypatch.setenv("INSTANTON_AUTH_TOKEN", "env-token-123")
 
         # Re-import to pick up env var
         import importlib
 
-        from tachyon import sdk
+        from instanton import sdk
         importlib.reload(sdk)
 
         assert sdk.DEFAULT_AUTH_TOKEN == "env-token-123"
 
         # Reset
-        monkeypatch.delenv("TACHYON_AUTH_TOKEN", raising=False)
+        monkeypatch.delenv("INSTANTON_AUTH_TOKEN", raising=False)
         importlib.reload(sdk)

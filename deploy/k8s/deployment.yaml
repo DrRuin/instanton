@@ -1,17 +1,17 @@
-# Tachyon Server Deployment
+# Instanton Server Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: tachyon-server
-  namespace: tachyon
+  name: instanton-server
+  namespace: instanton
   labels:
-    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/name: instanton
     app.kubernetes.io/component: server
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app.kubernetes.io/name: tachyon
+      app.kubernetes.io/name: instanton
       app.kubernetes.io/component: server
   strategy:
     type: RollingUpdate
@@ -21,22 +21,22 @@ spec:
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: tachyon
+        app.kubernetes.io/name: instanton
         app.kubernetes.io/component: server
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9090"
         prometheus.io/path: "/metrics"
     spec:
-      serviceAccountName: tachyon
+      serviceAccountName: instanton
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
 
       containers:
-        - name: tachyon-server
-          image: tachyon/tachyon-server:latest
+        - name: instanton-server
+          image: instanton/instanton-server:latest
           imagePullPolicy: Always
 
           ports:
@@ -52,12 +52,12 @@ spec:
 
           envFrom:
             - configMapRef:
-                name: tachyon-config
+                name: instanton-config
 
           env:
-            - name: TACHYON_CERT_PATH
+            - name: INSTANTON_CERT_PATH
               value: "/certs/tls.crt"
-            - name: TACHYON_KEY_PATH
+            - name: INSTANTON_KEY_PATH
               value: "/certs/tls.key"
             - name: POD_NAME
               valueFrom:
@@ -113,7 +113,7 @@ spec:
       volumes:
         - name: tls-certs
           secret:
-            secretName: tachyon-tls
+            secretName: instanton-tls
         - name: data
           emptyDir: {}
 
@@ -124,7 +124,7 @@ spec:
               podAffinityTerm:
                 labelSelector:
                   matchLabels:
-                    app.kubernetes.io/name: tachyon
+                    app.kubernetes.io/name: instanton
                 topologyKey: kubernetes.io/hostname
 
       topologySpreadConstraints:
@@ -133,4 +133,4 @@ spec:
           whenUnsatisfiable: ScheduleAnyway
           labelSelector:
             matchLabels:
-              app.kubernetes.io/name: tachyon
+              app.kubernetes.io/name: instanton

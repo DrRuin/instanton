@@ -1,0 +1,27 @@
+apiVersion: v2
+name: instanton
+description: Instanton - Tunnel through barriers, instantly
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+keywords:
+  - tunnel
+  - proxy
+  - networking
+  - https
+  - ngrok
+
+home: https://github.com/DrRuin/instanton
+sources:
+  - https://github.com/DrRuin/instanton
+
+maintainers:
+  - name: Instanton Team
+    url: https://github.com/DrRuin
+
+icon: https://raw.githubusercontent.com/DrRuin/instanton/main/docs/logo.svg
+
+annotations:
+  artifacthub.io/license: MIT
+  artifacthub.io/category: networking

@@ -1,5 +1,5 @@
 # ============================================================================
-# Tachyon - Production Dockerfile
+# Instanton - Production Dockerfile
 # Multi-stage build for minimal image size
 # ============================================================================
 
@@ -26,14 +26,14 @@ RUN pip install --no-cache-dir --upgrade pip && \
 FROM python:3.11-slim as production
 
 # Labels
-LABEL org.opencontainers.image.title="Tachyon"
-LABEL org.opencontainers.image.description="Faster-than-light tunneling"
-LABEL org.opencontainers.image.vendor="Tachyon Project"
+LABEL org.opencontainers.image.title="Instanton"
+LABEL org.opencontainers.image.description="Tunnel through barriers, instantly"
+LABEL org.opencontainers.image.vendor="Instanton Project"
 LABEL org.opencontainers.image.licenses="MIT"
-LABEL org.opencontainers.image.source="https://github.com/DrRuin/tachyon"
+LABEL org.opencontainers.image.source="https://github.com/DrRuin/instanton"
 
 # Create non-root user
-RUN groupadd -r tachyon && useradd -r -g tachyon tachyon
+RUN groupadd -r instanton && useradd -r -g instanton instanton
 
 WORKDIR /app
 
@@ -49,16 +49,16 @@ COPY pyproject.toml .
 RUN pip install --no-cache-dir -e .
 
 # Switch to non-root user
-USER tachyon
+USER instanton
 
 # Default environment variables
-ENV TACHYON_SERVER="tachyon.dev:443"
+ENV INSTANTON_SERVER="instanton.dev:443"
 ENV PYTHONUNBUFFERED=1
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import tachyon; print('healthy')" || exit 1
+    CMD python -c "import instanton; print('healthy')" || exit 1
 
 # Default command (tunnel client)
-ENTRYPOINT ["tachyon"]
+ENTRYPOINT ["instanton"]
 CMD ["--help"]

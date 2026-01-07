@@ -14,8 +14,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from tachyon.cli import main
-from tachyon.core.config import ClientConfig
+from instanton.cli import main
+from instanton.core.config import ClientConfig
 
 
 class TestClientConfigTimeout:
@@ -111,7 +111,7 @@ class TestCLITimeoutOptions:
         result = runner.invoke(main, ["--help"])
         assert "300" in result.output  # default idle timeout
 
-    @patch("tachyon.cli.asyncio.run")
+    @patch("instanton.cli.asyncio.run")
     def test_cli_passes_timeout_to_start_tunnel(
         self, mock_run: MagicMock, runner: CliRunner
     ):
@@ -126,7 +126,7 @@ class TestCLITimeoutOptions:
         coro = mock_run.call_args[0][0]
         assert coro is not None
 
-    @patch("tachyon.cli.asyncio.run")
+    @patch("instanton.cli.asyncio.run")
     def test_cli_passes_idle_timeout_to_start_tunnel(
         self, mock_run: MagicMock, runner: CliRunner
     ):
@@ -136,7 +136,7 @@ class TestCLITimeoutOptions:
         runner.invoke(main, ["--port", "8000", "--idle-timeout", "600"])
         mock_run.assert_called_once()
 
-    @patch("tachyon.cli.asyncio.run")
+    @patch("instanton.cli.asyncio.run")
     def test_cli_passes_keepalive_to_start_tunnel(
         self, mock_run: MagicMock, runner: CliRunner
     ):
@@ -146,7 +146,7 @@ class TestCLITimeoutOptions:
         runner.invoke(main, ["--port", "8000", "--keepalive", "15"])
         mock_run.assert_called_once()
 
-    @patch("tachyon.cli.asyncio.run")
+    @patch("instanton.cli.asyncio.run")
     def test_cli_all_timeout_options_together(
         self, mock_run: MagicMock, runner: CliRunner
     ):
@@ -198,11 +198,11 @@ class TestMultiPortSupport:
         """Test same port can connect to different servers."""
         config1 = ClientConfig(
             local_port=8000,
-            server_addr="server1.tachyon.dev:443",
+            server_addr="server1.instanton.dev:443",
         )
         config2 = ClientConfig(
             local_port=8000,
-            server_addr="server2.tachyon.dev:443",
+            server_addr="server2.instanton.dev:443",
         )
 
         assert config1.server_addr != config2.server_addr
@@ -211,14 +211,14 @@ class TestMultiPortSupport:
     @pytest.mark.asyncio
     async def test_multiple_tunnel_clients_creation(self):
         """Test creating multiple tunnel clients for different ports."""
-        from tachyon.client.tunnel import TunnelClient
+        from instanton.client.tunnel import TunnelClient
 
         # Create multiple clients (without connecting)
         clients = []
         for port, subdomain in [(3000, "frontend"), (5432, "db"), (8000, "api")]:
             client = TunnelClient(
                 local_port=port,
-                server_addr="tachyon.dev",
+                server_addr="instanton.dev",
                 subdomain=subdomain,
             )
             clients.append(client)
@@ -231,7 +231,7 @@ class TestMultiPortSupport:
     @pytest.mark.asyncio
     async def test_concurrent_tunnel_connect_mock(self):
         """Test concurrent tunnel connections with mocks."""
-        with patch("tachyon.client.tunnel.WebSocketTransport") as mock_ws:
+        with patch("instanton.client.tunnel.WebSocketTransport") as mock_ws:
             mock_transport = MagicMock()
             mock_transport.connect = AsyncMock()
             mock_transport.send = AsyncMock()
@@ -239,7 +239,7 @@ class TestMultiPortSupport:
             mock_transport.close = AsyncMock()
             mock_ws.return_value = mock_transport
 
-            from tachyon.client.tunnel import TunnelClient
+            from instanton.client.tunnel import TunnelClient
 
             # Create clients
             client1 = TunnelClient(local_port=3000, subdomain="app1")
@@ -268,7 +268,7 @@ class TestTimeoutBehavior:
     @pytest.mark.asyncio
     async def test_connect_timeout_config_used(self):
         """Test that connect_timeout is used in client configuration."""
-        from tachyon.client.tunnel import TunnelClient
+        from instanton.client.tunnel import TunnelClient
 
         config = ClientConfig(connect_timeout=60.0)
         client = TunnelClient(
@@ -282,7 +282,7 @@ class TestTimeoutBehavior:
     @pytest.mark.asyncio
     async def test_idle_timeout_config_used(self):
         """Test that idle_timeout is used in client configuration."""
-        from tachyon.client.tunnel import TunnelClient
+        from instanton.client.tunnel import TunnelClient
 
         config = ClientConfig(idle_timeout=600.0, keepalive_interval=25.0)
         client = TunnelClient(
@@ -296,7 +296,7 @@ class TestTimeoutBehavior:
     @pytest.mark.asyncio
     async def test_keepalive_interval_config_used(self):
         """Test that keepalive_interval is used in client configuration."""
-        from tachyon.client.tunnel import TunnelClient
+        from instanton.client.tunnel import TunnelClient
 
         config = ClientConfig(keepalive_interval=15.0)
         client = TunnelClient(
@@ -316,17 +316,17 @@ class TestConcurrentTunnelScenarios:
             "frontend": ClientConfig(
                 local_port=3000,
                 subdomain="frontend",
-                server_addr="tachyon.dev:443",
+                server_addr="instanton.dev:443",
             ),
             "database": ClientConfig(
                 local_port=5432,
                 subdomain="database",
-                server_addr="tachyon.dev:443",
+                server_addr="instanton.dev:443",
             ),
             "api": ClientConfig(
                 local_port=8000,
                 subdomain="api",
-                server_addr="tachyon.dev:443",
+                server_addr="instanton.dev:443",
             ),
         }
 
@@ -340,9 +340,9 @@ class TestConcurrentTunnelScenarios:
         assert len(set(subdomains)) == 3  # All unique
 
         # Verify expected URLs would be:
-        # frontend.tachyon.dev -> localhost:3000
-        # database.tachyon.dev -> localhost:5432
-        # api.tachyon.dev -> localhost:8000
+        # frontend.instanton.dev -> localhost:3000
+        # database.instanton.dev -> localhost:5432
+        # api.instanton.dev -> localhost:8000
         assert configs["frontend"].subdomain == "frontend"
         assert configs["frontend"].local_port == 3000
 
@@ -355,25 +355,25 @@ class TestConcurrentTunnelScenarios:
     @pytest.mark.asyncio
     async def test_create_multiple_independent_clients(self):
         """Test creating multiple independent tunnel clients."""
-        from tachyon.client.tunnel import TunnelClient
+        from instanton.client.tunnel import TunnelClient
 
         # Create three independent clients as user would in separate terminals
         client_frontend = TunnelClient(
             local_port=3000,
             subdomain="frontend",
-            server_addr="tachyon.dev",
+            server_addr="instanton.dev",
         )
 
         client_database = TunnelClient(
             local_port=5432,
             subdomain="database",
-            server_addr="tachyon.dev",
+            server_addr="instanton.dev",
         )
 
         client_api = TunnelClient(
             local_port=8000,
             subdomain="api",
-            server_addr="tachyon.dev",
+            server_addr="instanton.dev",
         )
 
         # Verify independence
@@ -457,7 +457,7 @@ class TestTimeoutEdgeCases:
 class TestCLIVerboseOutput:
     """Tests for CLI verbose output with timeout information."""
 
-    @patch("tachyon.cli.asyncio.run")
+    @patch("instanton.cli.asyncio.run")
     def test_verbose_shows_timeout_info(
         self, mock_run: MagicMock
     ):
@@ -482,7 +482,7 @@ class TestHTTPSubcommandTimeout:
         assert result.exit_code == 0
         assert "HTTP tunnel" in result.output or "http" in result.output.lower()
 
-    @patch("tachyon.cli.asyncio.run")
+    @patch("instanton.cli.asyncio.run")
     def test_http_command_with_port(self, mock_run: MagicMock):
         """Test http command with port argument."""
         runner = CliRunner()
@@ -502,7 +502,7 @@ class TestTCPSubcommandTimeout:
         assert result.exit_code == 0
         assert "TCP tunnel" in result.output or "tcp" in result.output.lower()
 
-    @patch("tachyon.cli.asyncio.run")
+    @patch("instanton.cli.asyncio.run")
     def test_tcp_command_with_port(self, mock_run: MagicMock):
         """Test tcp command with port argument."""
         runner = CliRunner()
@@ -522,7 +522,7 @@ class TestUDPSubcommandTimeout:
         assert result.exit_code == 0
         assert "UDP tunnel" in result.output or "udp" in result.output.lower()
 
-    @patch("tachyon.cli.asyncio.run")
+    @patch("instanton.cli.asyncio.run")
     def test_udp_command_with_port(self, mock_run: MagicMock):
         """Test udp command with port argument."""
         runner = CliRunner()
@@ -560,11 +560,11 @@ class TestClientConfigIntegration:
     @pytest.mark.asyncio
     async def test_tunnel_client_uses_config_timeout(self):
         """Test TunnelClient uses ClientConfig timeout values."""
-        from tachyon.client.tunnel import TunnelClient
+        from instanton.client.tunnel import TunnelClient
 
         config = ClientConfig(
             local_port=8000,
-            server_addr="tachyon.dev:443",
+            server_addr="instanton.dev:443",
             connect_timeout=45.0,
             idle_timeout=600.0,
             keepalive_interval=20.0,
@@ -578,12 +578,12 @@ class TestClientConfigIntegration:
         # TunnelClient stores keepalive_interval from config
         assert client._keepalive_interval == 20.0
         assert client.local_port == 8000
-        assert client.server_addr == "tachyon.dev:443"
+        assert client.server_addr == "instanton.dev:443"
 
     @pytest.mark.asyncio
     async def test_tunnel_client_default_config(self):
         """Test TunnelClient with default config values."""
-        from tachyon.client.tunnel import TunnelClient
+        from instanton.client.tunnel import TunnelClient
 
         client = TunnelClient(local_port=8000)
 

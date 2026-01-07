@@ -7,12 +7,12 @@ from uuid import uuid4
 
 import pytest
 
-from tachyon.inspector.replay import (
+from instanton.inspector.replay import (
     ReplayConfig,
     ReplayResult,
     RequestReplayer,
 )
-from tachyon.inspector.storage import (
+from instanton.inspector.storage import (
     CapturedRequest,
     CapturedResponse,
     RequestFilter,

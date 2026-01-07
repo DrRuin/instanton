@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 
-from tachyon.protocol.fast_messages import (
+from instanton.protocol.fast_messages import (
     CHUNK_SIZE,
     MAGIC,
     MAX_MESSAGE_SIZE,
@@ -128,14 +128,14 @@ class TestFastCodec:
         response = ConnectResponse(
             tunnel_id=tunnel_id,
             subdomain="abc123",
-            url="https://abc123.tachyon.dev",
+            url="https://abc123.instanton.dev",
         )
         encoded = encode_fast(response)
         decoded = decode_fast(encoded)
 
         assert isinstance(decoded, ConnectResponse)
         assert decoded.subdomain == "abc123"
-        assert decoded.url == "https://abc123.tachyon.dev"
+        assert decoded.url == "https://abc123.instanton.dev"
 
     def test_encode_decode_http_request(self):
         """Test HttpRequest encoding/decoding."""

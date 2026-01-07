@@ -2,14 +2,14 @@
 
 import struct
 
-from tachyon.client.tcp_tunnel import (
+from instanton.client.tcp_tunnel import (
     TcpRelayMessage,
     TcpTunnelClient,
     TcpTunnelConfig,
     TcpTunnelState,
     TcpTunnelStats,
 )
-from tachyon.client.udp_tunnel import (
+from instanton.client.udp_tunnel import (
     UdpRelayMessage,
     UdpTunnelClient,
     UdpTunnelConfig,

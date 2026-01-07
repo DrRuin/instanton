@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tachyon.core.performance import (
+from instanton.core.performance import (
     BufferPool,
     HTTPConnectionPool,
     LazyModule,

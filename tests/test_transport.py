@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tachyon.core.transport import (
+from instanton.core.transport import (
     ConnectionState,
     QuicClientProtocol,
     QuicServer,
@@ -213,7 +213,7 @@ class TestWebSocketConnect:
         mock_ws.ping.return_value.set_result(None)
 
         with patch(
-            "tachyon.core.transport.connect",
+            "instanton.core.transport.connect",
             return_value=mock_ws,
         ) as mock_connect:
             # Make mock_connect awaitable
@@ -244,7 +244,7 @@ class TestWebSocketConnect:
             await asyncio.sleep(10)
 
         with patch(
-            "tachyon.core.transport.connect",
+            "instanton.core.transport.connect",
             side_effect=slow_connect,
         ):
             with pytest.raises(TransportConnectionError, match="timeout"):
@@ -261,7 +261,7 @@ class TestWebSocketConnect:
             raise OSError("Connection refused")
 
         with patch(
-            "tachyon.core.transport.connect",
+            "instanton.core.transport.connect",
             side_effect=failed_connect,
         ):
             with pytest.raises(TransportConnectionError, match="Failed to connect"):
@@ -451,7 +451,7 @@ class TestReconnection:
             raise OSError("Connection refused")
 
         with patch(
-            "tachyon.core.transport.connect",
+            "instanton.core.transport.connect",
             side_effect=failed_connect,
         ), patch("asyncio.sleep", new_callable=AsyncMock):
             await transport._reconnect()
@@ -479,7 +479,7 @@ class TestReconnection:
             return mock_ws
 
         with patch(
-            "tachyon.core.transport.connect",
+            "instanton.core.transport.connect",
             side_effect=connect_after_failure,
         ), patch("asyncio.sleep", new_callable=AsyncMock):
             await transport._reconnect()
@@ -613,7 +613,7 @@ class TestQuicTransportConfig:
         assert config.cert_path is None
         assert config.key_path is None
         assert config.ca_path is None
-        assert config.alpn_protocols == ["tachyon"]
+        assert config.alpn_protocols == ["instanton"]
         assert config.idle_timeout == 30.0
         assert config.connection_timeout == 10.0
         assert config.auto_reconnect is True
@@ -630,7 +630,7 @@ class TestQuicTransportConfig:
             verify_ssl=False,
             cert_path=Path("/path/to/cert.pem"),
             key_path=Path("/path/to/key.pem"),
-            alpn_protocols=["h3", "tachyon"],
+            alpn_protocols=["h3", "instanton"],
             idle_timeout=60.0,
             connection_timeout=30.0,
             auto_reconnect=False,
@@ -643,7 +643,7 @@ class TestQuicTransportConfig:
         assert config.verify_ssl is False
         assert config.cert_path == Path("/path/to/cert.pem")
         assert config.key_path == Path("/path/to/key.pem")
-        assert config.alpn_protocols == ["h3", "tachyon"]
+        assert config.alpn_protocols == ["h3", "instanton"]
         assert config.idle_timeout == 60.0
         assert config.connection_timeout == 30.0
         assert config.auto_reconnect is False
@@ -1456,7 +1456,7 @@ class TestQuicServerInit:
         assert server._key_path == Path("/tmp/key.pem")
         assert server._host == "0.0.0.0"
         assert server._port == 4433
-        assert server._alpn_protocols == ["tachyon"]
+        assert server._alpn_protocols == ["instanton"]
         assert server._idle_timeout == 30.0
         assert server._server is None
         assert server._connections == {}
@@ -1469,13 +1469,13 @@ class TestQuicServerInit:
             key_path=Path("/custom/key.pem"),
             host="127.0.0.1",
             port=8443,
-            alpn_protocols=["h3", "tachyon"],
+            alpn_protocols=["h3", "instanton"],
             idle_timeout=60.0,
         )
 
         assert server._host == "127.0.0.1"
         assert server._port == 8443
-        assert server._alpn_protocols == ["h3", "tachyon"]
+        assert server._alpn_protocols == ["h3", "instanton"]
         assert server._idle_timeout == 60.0
 
     def test_on_connection_decorator(self):

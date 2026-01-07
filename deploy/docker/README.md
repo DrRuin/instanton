@@ -1,6 +1,6 @@
-# Tachyon Docker Deployment
+# Instanton Docker Deployment
 
-Quick start guide for running Tachyon with Docker.
+Quick start guide for running Instanton with Docker.
 
 ## Quick Start
 
@@ -8,10 +8,10 @@ Quick start guide for running Tachyon with Docker.
 
 ```bash
 # Connect to public relay
-docker run --rm -it --network host tachyon/tachyon --port 8000
+docker run --rm -it --network host instanton/instanton --port 8000
 
 # With custom subdomain
-docker run --rm -it --network host tachyon/tachyon --port 8000 --subdomain myapp
+docker run --rm -it --network host instanton/instanton --port 8000 --subdomain myapp
 ```
 
 ### Run the Relay Server (Self-Hosted)
@@ -22,7 +22,7 @@ docker run -d \
   -p 8443:8443 \
   -p 9090:9090 \
   -v ./certs:/certs:ro \
-  tachyon/tachyon-server \
+  instanton/instanton-server \
   --domain tunnel.example.com
 ```
 
@@ -32,7 +32,7 @@ For a complete setup with monitoring, use the docker-compose.yml in the project 
 
 ```bash
 # Start relay server only
-docker-compose up -d tachyon-server
+docker-compose up -d instanton-server
 
 # Start with monitoring (Prometheus + Grafana)
 docker-compose --profile monitoring up -d
@@ -47,10 +47,10 @@ docker-compose --profile example up -d
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `TACHYON_DOMAIN` | Domain for the relay server | `localhost` |
-| `TACHYON_LOG_LEVEL` | Log level (debug, info, warn, error) | `info` |
-| `TACHYON_AUTH_TOKEN` | Authentication token for clients | - |
-| `TACHYON_SERVER` | Relay server address (for client) | `tachyon.dev:443` |
+| `INSTANTON_DOMAIN` | Domain for the relay server | `localhost` |
+| `INSTANTON_LOG_LEVEL` | Log level (debug, info, warn, error) | `info` |
+| `INSTANTON_AUTH_TOKEN` | Authentication token for clients | - |
+| `INSTANTON_SERVER` | Relay server address (for client) | `instanton.dev:443` |
 
 ### Volumes
 
@@ -71,10 +71,10 @@ docker-compose --profile example up -d
 
 ```bash
 # Build client image
-docker build -t tachyon/tachyon -f Dockerfile .
+docker build -t instanton/instanton -f Dockerfile .
 
 # Build server image
-docker build -t tachyon/tachyon-server -f Dockerfile.server .
+docker build -t instanton/instanton-server -f Dockerfile.server .
 ```
 
 ## Health Checks
@@ -86,17 +86,17 @@ Both images include health checks:
 
 ## Prometheus Configuration
 
-The `prometheus.yml` in this folder is pre-configured to scrape metrics from the Tachyon server:
+The `prometheus.yml` in this folder is pre-configured to scrape metrics from the Instanton server:
 
 ```yaml
 scrape_configs:
-  - job_name: 'tachyon-server'
+  - job_name: 'instanton-server'
     static_configs:
-      - targets: ['tachyon-server:9090']
+      - targets: ['instanton-server:9090']
 ```
 
 ## Security Notes
 
-- Both images run as non-root user `tachyon`
+- Both images run as non-root user `instanton`
 - TLS certificates should be mounted read-only
 - Use Docker secrets for sensitive configuration in production

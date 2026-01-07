@@ -1,6 +1,6 @@
-# Tachyon Helm Chart
+# Instanton Helm Chart
 
-Deploy Tachyon relay server to Kubernetes using Helm.
+Deploy Instanton relay server to Kubernetes using Helm.
 
 ## Prerequisites
 
@@ -13,13 +13,13 @@ Deploy Tachyon relay server to Kubernetes using Helm.
 ### Quick Start
 
 ```bash
-# Add the Tachyon Helm repository
-helm repo add tachyon https://DrRuin.github.io/charts
+# Add the Instanton Helm repository
+helm repo add instanton https://DrRuin.github.io/charts
 helm repo update
 
 # Install with default values
-helm install tachyon tachyon/tachyon \
-  --namespace tachyon \
+helm install instanton instanton/instanton \
+  --namespace instanton \
   --create-namespace \
   --set domain=tunnel.example.com
 ```
@@ -28,8 +28,8 @@ helm install tachyon tachyon/tachyon \
 
 ```bash
 cd deploy/helm
-helm install tachyon ./tachyon \
-  --namespace tachyon \
+helm install instanton ./instanton \
+  --namespace instanton \
   --create-namespace \
   --set domain=tunnel.example.com
 ```
@@ -39,7 +39,7 @@ helm install tachyon ./tachyon \
 ### Basic Configuration
 
 ```bash
-helm install tachyon ./tachyon \
+helm install instanton ./instanton \
   --set domain=tunnel.example.com \
   --set replicaCount=3 \
   --set resources.requests.memory=256Mi
@@ -48,7 +48,7 @@ helm install tachyon ./tachyon \
 ### With Ingress
 
 ```bash
-helm install tachyon ./tachyon \
+helm install instanton ./instanton \
   --set domain=tunnel.example.com \
   --set ingress.enabled=true \
   --set ingress.className=nginx
@@ -57,7 +57,7 @@ helm install tachyon ./tachyon \
 ### With cert-manager
 
 ```bash
-helm install tachyon ./tachyon \
+helm install instanton ./instanton \
   --set domain=tunnel.example.com \
   --set ingress.enabled=true \
   --set ingress.annotations."cert-manager\.io/cluster-issuer"=letsencrypt-prod
@@ -70,10 +70,10 @@ helm install tachyon ./tachyon \
 kubectl create secret tls my-tls-secret \
   --cert=cert.pem \
   --key=key.pem \
-  -n tachyon
+  -n instanton
 
 # Install with existing secret
-helm install tachyon ./tachyon \
+helm install instanton ./instanton \
   --set domain=tunnel.example.com \
   --set tls.existingSecret=my-tls-secret
 ```
@@ -84,7 +84,7 @@ helm install tachyon ./tachyon \
 |-----------|-------------|---------|
 | `domain` | Base domain for tunnels | `tunnel.example.com` |
 | `replicaCount` | Number of replicas | `2` |
-| `image.repository` | Image repository | `tachyon/tachyon-server` |
+| `image.repository` | Image repository | `instanton/instanton-server` |
 | `image.tag` | Image tag | `latest` |
 | `logLevel` | Log level | `info` |
 | `maxTunnels` | Maximum tunnels | `1000` |
@@ -101,16 +101,16 @@ See `values.yaml` for all available options.
 ## Upgrading
 
 ```bash
-helm upgrade tachyon ./tachyon \
-  --namespace tachyon \
+helm upgrade instanton ./instanton \
+  --namespace instanton \
   --set domain=tunnel.example.com
 ```
 
 ## Uninstalling
 
 ```bash
-helm uninstall tachyon --namespace tachyon
-kubectl delete namespace tachyon
+helm uninstall instanton --namespace instanton
+kubectl delete namespace instanton
 ```
 
 ## Troubleshooting
@@ -118,19 +118,19 @@ kubectl delete namespace tachyon
 ### Check pod status
 
 ```bash
-kubectl get pods -n tachyon
-kubectl describe pod -n tachyon <pod-name>
+kubectl get pods -n instanton
+kubectl describe pod -n instanton <pod-name>
 ```
 
 ### View logs
 
 ```bash
-kubectl logs -f deployment/tachyon -n tachyon
+kubectl logs -f deployment/instanton -n instanton
 ```
 
 ### Test health endpoint
 
 ```bash
-kubectl port-forward svc/tachyon-control 8443:8443 -n tachyon
+kubectl port-forward svc/instanton-control 8443:8443 -n instanton
 curl http://localhost:8443/health
 ```

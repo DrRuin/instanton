@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from tachyon.security.zerotrust import (
+from instanton.security.zerotrust import (
     AccessDecision,
     AccessRequest,
     AccessResult,

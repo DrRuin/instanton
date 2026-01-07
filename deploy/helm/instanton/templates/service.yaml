@@ -1,0 +1,69 @@
+---
+# HTTPS Service (Public Traffic)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "instanton.fullname" . }}-https
+  labels:
+    {{- include "instanton.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+  {{- with .Values.service.https.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.https.type }}
+  ports:
+    - name: https
+      port: {{ .Values.service.https.port }}
+      targetPort: 443
+      protocol: TCP
+  selector:
+    {{- include "instanton.selectorLabels" . | nindent 4 }}
+
+---
+# Control Plane Service (Tunnel Clients)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "instanton.fullname" . }}-control
+  labels:
+    {{- include "instanton.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+  {{- with .Values.service.control.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.control.type }}
+  ports:
+    - name: control
+      port: {{ .Values.service.control.port }}
+      targetPort: 8443
+      protocol: TCP
+  selector:
+    {{- include "instanton.selectorLabels" . | nindent 4 }}
+
+---
+# Metrics Service (Internal)
+{{- if .Values.metrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "instanton.fullname" . }}-metrics
+  labels:
+    {{- include "instanton.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: {{ .Values.metrics.port | quote }}
+spec:
+  type: {{ .Values.service.metrics.type }}
+  ports:
+    - name: metrics
+      port: {{ .Values.service.metrics.port }}
+      targetPort: {{ .Values.metrics.port }}
+      protocol: TCP
+  selector:
+    {{- include "instanton.selectorLabels" . | nindent 4 }}
+{{- end }}

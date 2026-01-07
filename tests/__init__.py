@@ -1,1 +1,1 @@
-"""Tachyon tests."""
+"""Instanton tests."""

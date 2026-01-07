@@ -1,0 +1,200 @@
+# Instanton Helm Chart Values
+# Override these values to customize your deployment
+
+# ============================================================================
+# Server Configuration
+# ============================================================================
+
+# Domain for tunnel URLs (e.g., myapp.tunnel.example.com)
+domain: "tunnel.example.com"
+
+# Logging level (debug, info, warn, error)
+logLevel: "info"
+
+# Maximum number of tunnels
+maxTunnels: 1000
+
+# Idle timeout in seconds (close inactive tunnels)
+idleTimeout: 3600
+
+# ============================================================================
+# Image Configuration
+# ============================================================================
+
+image:
+  repository: instanton/instanton-server
+  tag: "latest"
+  pullPolicy: Always
+
+imagePullSecrets: []
+
+# ============================================================================
+# Deployment Configuration
+# ============================================================================
+
+replicaCount: 2
+
+# Pod annotations
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "9090"
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Resource limits
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "1000m"
+    memory: "512Mi"
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity rules
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: instanton
+          topologyKey: kubernetes.io/hostname
+
+# ============================================================================
+# Service Configuration
+# ============================================================================
+
+service:
+  # HTTPS service (public traffic)
+  https:
+    type: LoadBalancer
+    port: 443
+    annotations: {}
+
+  # Control plane service (tunnel clients)
+  control:
+    type: LoadBalancer
+    port: 8443
+    annotations: {}
+
+  # Metrics service (internal)
+  metrics:
+    type: ClusterIP
+    port: 9090
+
+# ============================================================================
+# Ingress Configuration
+# ============================================================================
+
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/websocket-services: "instanton-control"
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+  # TLS configuration
+  tls:
+    enabled: true
+    secretName: "instanton-tls"
+
+# ============================================================================
+# TLS Configuration
+# ============================================================================
+
+tls:
+  # Use existing secret for TLS
+  existingSecret: ""
+
+  # Or provide certificate data directly (base64 encoded)
+  certificate: ""
+  privateKey: ""
+
+  # Auto-generate self-signed certificate (for testing)
+  autoGenerate: false
+
+# ============================================================================
+# Autoscaling Configuration
+# ============================================================================
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# ============================================================================
+# Pod Disruption Budget
+# ============================================================================
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ============================================================================
+# Service Account
+# ============================================================================
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ============================================================================
+# Probes
+# ============================================================================
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: control
+  initialDelaySeconds: 10
+  periodSeconds: 30
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: control
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# ============================================================================
+# Metrics & Monitoring
+# ============================================================================
+
+metrics:
+  enabled: true
+  port: 9090
+
+  # ServiceMonitor for Prometheus Operator
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}

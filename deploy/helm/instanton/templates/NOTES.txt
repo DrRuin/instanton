@@ -1,0 +1,65 @@
+
+=====================================================
+  INSTANTON - Tunnel through barriers, instantly
+=====================================================
+
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named: {{ .Release.Name }}
+
+GETTING STARTED
+---------------
+
+1. Get the control plane URL:
+{{- if .Values.ingress.enabled }}
+   Control Plane: https://{{ .Values.domain }}/tunnel
+{{- else if contains "LoadBalancer" .Values.service.control.type }}
+   NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+   Watch the status with:
+
+   kubectl get svc {{ include "instanton.fullname" . }}-control -n {{ .Release.Namespace }} -w
+
+   Once available, your control plane URL will be:
+   export SERVICE_IP=$(kubectl get svc {{ include "instanton.fullname" . }}-control -n {{ .Release.Namespace }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+   echo "Control Plane: wss://$SERVICE_IP:{{ .Values.service.control.port }}/tunnel"
+{{- else if contains "ClusterIP" .Values.service.control.type }}
+   kubectl port-forward svc/{{ include "instanton.fullname" . }}-control {{ .Values.service.control.port }}:{{ .Values.service.control.port }} -n {{ .Release.Namespace }}
+   echo "Control Plane: wss://localhost:{{ .Values.service.control.port }}/tunnel"
+{{- end }}
+
+2. Connect a tunnel client:
+
+   instanton --port 8000 --server YOUR_SERVER_ADDRESS
+
+3. Check the health endpoint:
+
+   curl https://{{ .Values.domain }}/health
+
+TUNNEL URLS
+-----------
+
+Your tunnels will be accessible at:
+   https://<subdomain>.{{ .Values.domain }}
+
+MONITORING
+----------
+{{- if .Values.metrics.enabled }}
+
+Metrics are available on port {{ .Values.metrics.port }}
+
+{{- if .Values.metrics.serviceMonitor.enabled }}
+ServiceMonitor is enabled - Prometheus Operator will scrape metrics automatically.
+{{- else }}
+To scrape metrics manually:
+   kubectl port-forward svc/{{ include "instanton.fullname" . }}-metrics {{ .Values.metrics.port }}:{{ .Values.metrics.port }} -n {{ .Release.Namespace }}
+   curl http://localhost:{{ .Values.metrics.port }}/metrics
+{{- end }}
+{{- end }}
+
+DOCUMENTATION
+-------------
+
+For more information, visit:
+   https://github.com/DrRuin/instanton
+
+Happy tunneling!

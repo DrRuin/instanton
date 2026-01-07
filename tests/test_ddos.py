@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from tachyon.security.ddos import (
+from instanton.security.ddos import (
     AttackType,
     ChallengeType,
     ConnectionTracker,

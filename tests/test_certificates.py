@@ -9,13 +9,13 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import NameOID
 
-from tachyon.security.certificates import (
+from instanton.security.certificates import (
     CertificateManager,
     CertificateStore,
     generate_self_signed_cert,
     parse_certificate_info,
 )
-from tachyon.security.mtls import (
+from instanton.security.mtls import (
     ClientCertInfo,
     ClientCertValidator,
     ClientCertVerifyMode,

@@ -1,6 +1,6 @@
-# Tachyon Kubernetes Deployment
+# Instanton Kubernetes Deployment
 
-Deploy Tachyon relay server to Kubernetes.
+Deploy Instanton relay server to Kubernetes.
 
 ## Quick Start
 
@@ -33,7 +33,7 @@ Edit `configmap.yaml`:
 
 ```yaml
 data:
-  TACHYON_DOMAIN: "tunnel.yourdomain.com"
+  INSTANTON_DOMAIN: "tunnel.yourdomain.com"
 ```
 
 ### 2. Add TLS Certificates
@@ -42,10 +42,10 @@ Option A: Manual certificate
 
 ```bash
 # Create secret from files
-kubectl create secret tls tachyon-tls \
+kubectl create secret tls instanton-tls \
   --cert=cert.pem \
   --key=key.pem \
-  -n tachyon
+  -n instanton
 ```
 
 Option B: Using cert-manager (recommended)
@@ -70,16 +70,16 @@ spec:
 
 ```bash
 # Check pods
-kubectl get pods -n tachyon
+kubectl get pods -n instanton
 
 # Check services
-kubectl get svc -n tachyon
+kubectl get svc -n instanton
 
 # View logs
-kubectl logs -f deployment/tachyon-server -n tachyon
+kubectl logs -f deployment/instanton-server -n instanton
 
 # Test health
-kubectl port-forward svc/tachyon-control 8443:8443 -n tachyon
+kubectl port-forward svc/instanton-control 8443:8443 -n instanton
 curl http://localhost:8443/health
 ```
 
@@ -88,7 +88,7 @@ curl http://localhost:8443/health
 Manual scaling:
 
 ```bash
-kubectl scale deployment tachyon-server --replicas=5 -n tachyon
+kubectl scale deployment instanton-server --replicas=5 -n instanton
 ```
 
 Auto-scaling is configured via `hpa.yaml` (2-10 replicas based on CPU/memory).
@@ -100,11 +100,11 @@ The deployment exposes Prometheus metrics on port 9090.
 Add to your Prometheus config:
 
 ```yaml
-- job_name: 'tachyon'
+- job_name: 'instanton'
   kubernetes_sd_configs:
     - role: pod
       namespaces:
-        names: ['tachyon']
+        names: ['instanton']
   relabel_configs:
     - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
       action: keep
@@ -116,8 +116,8 @@ Add to your Prometheus config:
 ### Pods not starting
 
 ```bash
-kubectl describe pod -n tachyon
-kubectl logs -n tachyon <pod-name>
+kubectl describe pod -n instanton
+kubectl logs -n instanton <pod-name>
 ```
 
 ### Connection refused
@@ -125,7 +125,7 @@ kubectl logs -n tachyon <pod-name>
 Check if services are running:
 
 ```bash
-kubectl get endpoints -n tachyon
+kubectl get endpoints -n instanton
 ```
 
 ### TLS errors
@@ -133,5 +133,5 @@ kubectl get endpoints -n tachyon
 Verify certificate:
 
 ```bash
-kubectl get secret tachyon-tls -n tachyon -o yaml
+kubectl get secret instanton-tls -n instanton -o yaml
 ```

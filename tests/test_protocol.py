@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from tachyon.protocol.messages import (
+from instanton.protocol.messages import (
     CHUNK_SIZE,
     MAGIC,
     MAX_MESSAGE_SIZE,
@@ -67,14 +67,14 @@ class TestBasicMessages:
             type="connected",
             tunnel_id=tunnel_id,
             subdomain="abc123",
-            url="https://abc123.tachyon.dev",
+            url="https://abc123.instanton.dev",
         )
         encoded = encode_message(response)
         decoded = decode_message(encoded)
 
         assert decoded["type"] == "connected"
         assert decoded["subdomain"] == "abc123"
-        assert decoded["url"] == "https://abc123.tachyon.dev"
+        assert decoded["url"] == "https://abc123.instanton.dev"
 
     def test_http_request_encoding(self):
         """Test HttpRequest encode/decode."""

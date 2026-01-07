@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from tachyon.webhooks.providers import (
+from instanton.webhooks.providers import (
     SUPPORTED_PROVIDERS,
     DropboxWebhook,
     GitHubWebhook,
@@ -22,7 +22,7 @@ from tachyon.webhooks.providers import (
     WebhookRequest,
     get_provider,
 )
-from tachyon.webhooks.verifier import (
+from instanton.webhooks.verifier import (
     VerificationResult,
     WebhookProvider,
     WebhookVerifier,

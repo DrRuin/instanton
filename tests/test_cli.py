@@ -1,4 +1,4 @@
-"""Tests for Tachyon CLI."""
+"""Tests for Instanton CLI."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 
-from tachyon.cli import _format_bytes, main
+from instanton.cli import _format_bytes, main
 
 
 class TestCLIBasics:
@@ -19,9 +19,9 @@ class TestCLIBasics:
 
         assert result.exit_code == 0
         # Check for key content - banner uses Unicode box drawing
-        assert "Faster-than-light tunneling" in result.output
+        assert "Tunnel through barriers, instantly" in result.output
         assert "Usage:" in result.output
-        assert "tachyon --port 8000" in result.output
+        assert "instanton --port 8000" in result.output
 
     def test_main_with_help(self):
         """Test --help shows help message."""
@@ -29,7 +29,7 @@ class TestCLIBasics:
         result = runner.invoke(main, ["--help"])
 
         assert result.exit_code == 0
-        assert "Tachyon - Expose local services" in result.output
+        assert "Instanton - Tunnel through barriers" in result.output
         assert "--port" in result.output
         assert "--subdomain" in result.output
 
@@ -40,7 +40,7 @@ class TestCLIBasics:
 
         assert result.exit_code == 0
         # Check for key content - banner uses Unicode box drawing
-        assert "Faster-than-light tunneling" in result.output
+        assert "Tunnel through barriers, instantly" in result.output
         assert "Version:" in result.output
         assert "Python:" in result.output
 
@@ -122,7 +122,7 @@ class TestReplayCommand:
     def test_replay_command_shows_coming_soon(self):
         """Test replay command shows coming soon."""
         runner = CliRunner()
-        result = runner.invoke(main, ["replay", "https://test.tachyon.dev/api"])
+        result = runner.invoke(main, ["replay", "https://test.instanton.dev/api"])
 
         assert result.exit_code == 0
         assert "coming soon" in result.output.lower()
@@ -153,10 +153,10 @@ class TestTunnelStart:
         """Test that subdomain is auto-suggested from project."""
         runner = CliRunner()
 
-        from tachyon import sdk
+        from instanton import sdk
         with (
             patch.object(sdk, "_suggest_subdomain", return_value="my-project"),
-            patch("tachyon.cli.asyncio.run") as mock_run,
+            patch("instanton.cli.asyncio.run") as mock_run,
         ):
             # This won't actually run the tunnel, just test CLI parsing
             runner.invoke(main, ["--port", "8000"])

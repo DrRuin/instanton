@@ -1,6 +1,6 @@
-# Contributing to Tachyon
+# Contributing to Instanton
 
-Thank you for your interest in contributing to Tachyon! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to Instanton! This document provides guidelines and instructions for contributing.
 
 ## Code of Conduct
 
@@ -17,8 +17,8 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 1. Fork and clone the repository:
    ```bash
-   git clone https://github.com/YOUR_USERNAME/tachyon.git
-   cd tachyon
+   git clone https://github.com/YOUR_USERNAME/instanton.git
+   cd instanton
    ```
 
 2. Create a virtual environment:
@@ -118,7 +118,7 @@ from pathlib import Path
 import aiohttp
 from pydantic import BaseModel
 
-from tachyon.core.config import Config
+from instanton.core.config import Config
 ```
 
 ### Documentation
@@ -159,7 +159,7 @@ async def forward(port: int, subdomain: str | None = None) -> Listener:
 pytest tests/ -v
 
 # Run with coverage
-pytest tests/ -v --cov=tachyon --cov-report=html
+pytest tests/ -v --cov=instanton --cov-report=html
 
 # Run specific test file
 pytest tests/test_protocol.py -v
@@ -179,7 +179,7 @@ pytest tests/ -v -k "test_websocket"
 Example:
 ```python
 import pytest
-from tachyon.protocol.messages import TunnelRequest
+from instanton.protocol.messages import TunnelRequest
 
 @pytest.mark.asyncio
 async def test_tunnel_request_serialization():
@@ -209,7 +209,7 @@ Include:
 
 ## Getting Help
 
-- Open a [GitHub Discussion](https://github.com/DrRuin/tachyon/discussions) for questions
+- Open a [GitHub Discussion](https://github.com/DrRuin/instanton/discussions) for questions
 - Check existing issues before creating new ones
 - Join our community chat (if available)
 
@@ -220,4 +220,4 @@ Contributors will be recognized in:
 - Release notes
 - Project documentation
 
-Thank you for contributing to Tachyon!
+Thank you for contributing to Instanton!

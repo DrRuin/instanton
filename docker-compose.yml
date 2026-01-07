@@ -1,5 +1,5 @@
 # ============================================================================
-# Tachyon - Docker Compose
+# Instanton - Docker Compose
 # Quick start for development and testing
 # ============================================================================
 
@@ -7,23 +7,23 @@ version: '3.8'
 
 services:
   # -------------------------------------------------------------------------
-  # Tachyon Relay Server (Self-hosted)
+  # Instanton Relay Server (Self-hosted)
   # -------------------------------------------------------------------------
-  tachyon-server:
+  instanton-server:
     build:
       context: .
       dockerfile: Dockerfile.server
-    container_name: tachyon-server
+    container_name: instanton-server
     ports:
       - "443:443"      # HTTPS (public traffic)
       - "8443:8443"    # Control plane (tunnel clients)
       - "9090:9090"    # Metrics (Prometheus)
     environment:
-      - TACHYON_DOMAIN=${TACHYON_DOMAIN:-localhost}
-      - TACHYON_LOG_LEVEL=${TACHYON_LOG_LEVEL:-info}
+      - INSTANTON_DOMAIN=${INSTANTON_DOMAIN:-localhost}
+      - INSTANTON_LOG_LEVEL=${INSTANTON_LOG_LEVEL:-info}
     volumes:
       - ./certs:/certs:ro
-      - tachyon-data:/data
+      - instanton-data:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8443/health"]
       interval: 30s
@@ -32,22 +32,22 @@ services:
       start_period: 10s
     restart: unless-stopped
     networks:
-      - tachyon-network
+      - instanton-network
 
   # -------------------------------------------------------------------------
-  # Tachyon Client (Example - connects to server)
+  # Instanton Client (Example - connects to server)
   # -------------------------------------------------------------------------
-  tachyon-client:
+  instanton-client:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: tachyon-client
-    command: ["--port", "8000", "--server", "tachyon-server:8443"]
+    container_name: instanton-client
+    command: ["--port", "8000", "--server", "instanton-server:8443"]
     environment:
-      - TACHYON_SERVER=tachyon-server:8443
-      - TACHYON_AUTH_TOKEN=${TACHYON_AUTH_TOKEN:-}
+      - INSTANTON_SERVER=instanton-server:8443
+      - INSTANTON_AUTH_TOKEN=${INSTANTON_AUTH_TOKEN:-}
     depends_on:
-      tachyon-server:
+      instanton-server:
         condition: service_healthy
     network_mode: host  # Access host's localhost services
     restart: unless-stopped
@@ -55,7 +55,7 @@ services:
       - client  # Only start with: docker-compose --profile client up
 
   # -------------------------------------------------------------------------
-  # Example: Your application that Tachyon tunnels
+  # Example: Your application that Instanton tunnels
   # -------------------------------------------------------------------------
   example-app:
     image: nginx:alpine
@@ -66,7 +66,7 @@ services:
       - ./example:/usr/share/nginx/html:ro
     restart: unless-stopped
     networks:
-      - tachyon-network
+      - instanton-network
     profiles:
       - example  # Only start with: docker-compose --profile example up
 
@@ -75,7 +75,7 @@ services:
   # -------------------------------------------------------------------------
   prometheus:
     image: prom/prometheus:latest
-    container_name: tachyon-prometheus
+    container_name: instanton-prometheus
     ports:
       - "9091:9090"
     volumes:
@@ -86,7 +86,7 @@ services:
       - '--storage.tsdb.path=/prometheus'
     restart: unless-stopped
     networks:
-      - tachyon-network
+      - instanton-network
     profiles:
       - monitoring
 
@@ -95,7 +95,7 @@ services:
   # -------------------------------------------------------------------------
   grafana:
     image: grafana/grafana:latest
-    container_name: tachyon-grafana
+    container_name: instanton-grafana
     ports:
       - "3000:3000"
     environment:
@@ -107,18 +107,18 @@ services:
       - prometheus
     restart: unless-stopped
     networks:
-      - tachyon-network
+      - instanton-network
     profiles:
       - monitoring
 
 # Networks
 networks:
-  tachyon-network:
+  instanton-network:
     driver: bridge
 
 # Volumes
 volumes:
-  tachyon-data:
+  instanton-data:
     driver: local
   prometheus-data:
     driver: local

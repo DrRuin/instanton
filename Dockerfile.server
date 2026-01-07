@@ -1,5 +1,5 @@
 # ============================================================================
-# Tachyon Server - Production Dockerfile
+# Instanton Server - Production Dockerfile
 # For self-hosting the relay server
 # ============================================================================
 
@@ -26,14 +26,14 @@ RUN pip install --no-cache-dir --upgrade pip && \
 FROM python:3.11-slim as production
 
 # Labels
-LABEL org.opencontainers.image.title="Tachyon Server"
-LABEL org.opencontainers.image.description="Tachyon Relay Server - Self-hosted tunneling"
-LABEL org.opencontainers.image.vendor="Tachyon Project"
+LABEL org.opencontainers.image.title="Instanton Server"
+LABEL org.opencontainers.image.description="Instanton Relay Server - Self-hosted tunneling"
+LABEL org.opencontainers.image.vendor="Instanton Project"
 LABEL org.opencontainers.image.licenses="MIT"
-LABEL org.opencontainers.image.source="https://github.com/DrRuin/tachyon"
+LABEL org.opencontainers.image.source="https://github.com/DrRuin/instanton"
 
 # Create non-root user
-RUN groupadd -r tachyon && useradd -r -g tachyon tachyon
+RUN groupadd -r instanton && useradd -r -g instanton instanton
 
 WORKDIR /app
 
@@ -49,15 +49,15 @@ COPY pyproject.toml .
 RUN pip install --no-cache-dir -e .
 
 # Create directories for certificates and data
-RUN mkdir -p /certs /data && chown -R tachyon:tachyon /certs /data
+RUN mkdir -p /certs /data && chown -R instanton:instanton /certs /data
 
 # Switch to non-root user
-USER tachyon
+USER instanton
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1
-ENV TACHYON_CERT_PATH="/certs/cert.pem"
-ENV TACHYON_KEY_PATH="/certs/key.pem"
+ENV INSTANTON_CERT_PATH="/certs/cert.pem"
+ENV INSTANTON_KEY_PATH="/certs/key.pem"
 
 # Expose ports
 # 443  - HTTPS (client connections)
@@ -73,5 +73,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 VOLUME ["/certs", "/data"]
 
 # Default command (relay server)
-ENTRYPOINT ["tachyon-server"]
+ENTRYPOINT ["instanton-server"]
 CMD ["--domain", "localhost", "--control-bind", "0.0.0.0:8443", "--https-bind", "0.0.0.0:443"]

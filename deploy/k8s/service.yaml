@@ -1,13 +1,13 @@
-# Tachyon Services
+# Instanton Services
 ---
 # HTTPS Service (Public Traffic)
 apiVersion: v1
 kind: Service
 metadata:
-  name: tachyon-https
-  namespace: tachyon
+  name: instanton-https
+  namespace: instanton
   labels:
-    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/name: instanton
     app.kubernetes.io/component: server
 spec:
   type: LoadBalancer
@@ -17,7 +17,7 @@ spec:
       targetPort: 443
       protocol: TCP
   selector:
-    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/name: instanton
     app.kubernetes.io/component: server
 
 ---
@@ -25,10 +25,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: tachyon-control
-  namespace: tachyon
+  name: instanton-control
+  namespace: instanton
   labels:
-    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/name: instanton
     app.kubernetes.io/component: server
 spec:
   type: LoadBalancer
@@ -38,7 +38,7 @@ spec:
       targetPort: 8443
       protocol: TCP
   selector:
-    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/name: instanton
     app.kubernetes.io/component: server
 
 ---
@@ -46,10 +46,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: tachyon-metrics
-  namespace: tachyon
+  name: instanton-metrics
+  namespace: instanton
   labels:
-    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/name: instanton
     app.kubernetes.io/component: server
   annotations:
     prometheus.io/scrape: "true"
@@ -62,5 +62,5 @@ spec:
       targetPort: 9090
       protocol: TCP
   selector:
-    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/name: instanton
     app.kubernetes.io/component: server

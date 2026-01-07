@@ -17,10 +17,10 @@ import httpx
 import pytest
 from click.testing import CliRunner
 
-from tachyon.cli import main
-from tachyon.client.tunnel import ProxyConfig, TunnelClient
-from tachyon.core.config import ClientConfig
-from tachyon.protocol.messages import (
+from instanton.cli import main
+from instanton.client.tunnel import ProxyConfig, TunnelClient
+from instanton.core.config import ClientConfig
+from instanton.protocol.messages import (
     ChunkAssembler,
     ChunkData,
     ChunkEnd,
@@ -118,7 +118,7 @@ class TestCLINoRequestTimeout:
         result = runner.invoke(main, ["--help"])
         assert "long-running" in result.output or "streaming" in result.output
 
-    @patch("tachyon.cli.asyncio.run")
+    @patch("instanton.cli.asyncio.run")
     def test_no_request_timeout_flag_passed(
         self, mock_run: MagicMock, runner: CliRunner
     ):
@@ -334,19 +334,19 @@ class TestRealTimeStreamingScenarios:
     def test_websocket_upgrade_preserved(self):
         """Test that WebSocket upgrade requests are preserved."""
         # WebSocket tunneling is handled at protocol level
-        from tachyon.protocol.messages import TunnelProtocol
+        from instanton.protocol.messages import TunnelProtocol
 
         assert TunnelProtocol.WEBSOCKET == 4
 
     def test_grpc_streaming_supported(self):
         """Test that gRPC streaming is supported."""
-        from tachyon.protocol.messages import TunnelProtocol
+        from instanton.protocol.messages import TunnelProtocol
 
         assert TunnelProtocol.GRPC == 3
 
     def test_http2_streaming_supported(self):
         """Test that HTTP/2 streaming is supported."""
-        from tachyon.protocol.messages import TunnelProtocol
+        from instanton.protocol.messages import TunnelProtocol
 
         assert TunnelProtocol.HTTP2 == 2
 
@@ -356,7 +356,7 @@ class TestStreamingChunkSize:
 
     def test_default_chunk_size(self):
         """Test default chunk size."""
-        from tachyon.protocol.messages import CHUNK_SIZE
+        from instanton.protocol.messages import CHUNK_SIZE
 
         assert CHUNK_SIZE == 64 * 1024  # 64KB
 
@@ -484,7 +484,7 @@ class TestCLITimeoutIntegration:
         """Create CLI runner."""
         return CliRunner()
 
-    @patch("tachyon.cli.asyncio.run")
+    @patch("instanton.cli.asyncio.run")
     def test_cli_with_all_timeout_options(
         self, mock_run: MagicMock, runner: CliRunner
     ):
@@ -503,7 +503,7 @@ class TestCLITimeoutIntegration:
         )
         mock_run.assert_called_once()
 
-    @patch("tachyon.cli.asyncio.run")
+    @patch("instanton.cli.asyncio.run")
     def test_cli_streaming_api_configuration(
         self, mock_run: MagicMock, runner: CliRunner
     ):

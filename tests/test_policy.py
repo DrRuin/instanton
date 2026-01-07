@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tachyon.policy.actions import (
+from instanton.policy.actions import (
     ActionType,
     AllowAction,
     CircuitBreakerAction,
@@ -17,12 +17,12 @@ from tachyon.policy.actions import (
     RewriteAction,
     TagAction,
 )
-from tachyon.policy.engine import (
+from instanton.policy.engine import (
     PolicyEngine,
     create_ip_restriction_policy,
     create_rate_limit_policy,
 )
-from tachyon.policy.rules import (
+from instanton.policy.rules import (
     ConditionOperator,
     MatchField,
     PolicyRule,
@@ -764,7 +764,7 @@ class TestConveniencePolicyFunctions:
         """Test rate limit policy creation."""
         # create_rate_limit_policy uses get_policy_engine() internally
         # to register the action, so we need to use the same engine
-        from tachyon.policy.engine import get_policy_engine
+        from instanton.policy.engine import get_policy_engine
 
         engine = get_policy_engine()
         engine.reset_stats()

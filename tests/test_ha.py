@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from tachyon.core.ha import (
+from instanton.core.ha import (
     ConnectionHealth,
     ConnectionMetrics,
     EdgeServer,

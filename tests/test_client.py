@@ -9,14 +9,14 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from tachyon.client.tunnel import (
+from instanton.client.tunnel import (
     ConnectionState,
     ProxyConfig,
     ReconnectConfig,
     TunnelClient,
 )
-from tachyon.core.config import ClientConfig
-from tachyon.protocol.messages import (
+from instanton.core.config import ClientConfig
+from instanton.protocol.messages import (
     ConnectResponse,
     Disconnect,
     HttpRequest,
@@ -70,7 +70,7 @@ def client() -> TunnelClient:
     """Create a tunnel client with default settings."""
     return TunnelClient(
         local_port=8080,
-        server_addr="test.tachyon.dev",
+        server_addr="test.instanton.dev",
         subdomain="test",
     )
 
@@ -80,7 +80,7 @@ def client_no_reconnect() -> TunnelClient:
     """Create a tunnel client with reconnect disabled."""
     return TunnelClient(
         local_port=8080,
-        server_addr="test.tachyon.dev",
+        server_addr="test.instanton.dev",
         reconnect_config=ReconnectConfig(enabled=False),
     )
 
@@ -92,7 +92,7 @@ class TestTunnelClientInit:
         """Test default initialization."""
         client = TunnelClient(local_port=8080)
         assert client.local_port == 8080
-        assert client.server_addr == "tachyon.dev"
+        assert client.server_addr == "instanton.dev"
         assert client.subdomain is None
         assert not client.use_quic
         assert client.state == ConnectionState.DISCONNECTED
@@ -290,7 +290,7 @@ class TestConnect:
             type="connected",
             tunnel_id=tunnel_id,
             subdomain="test",
-            url="https://test.tachyon.dev",
+            url="https://test.instanton.dev",
         )
 
         mock_transport.queue_message(encode_message(negotiate_response))
@@ -301,7 +301,7 @@ class TestConnect:
         ):
             url = await client.connect()
 
-        assert url == "https://test.tachyon.dev"
+        assert url == "https://test.instanton.dev"
         assert client.tunnel_id == tunnel_id
         assert client.state == ConnectionState.CONNECTED
         assert client.is_connected
@@ -587,7 +587,7 @@ class TestContextManager:
             type="connected",
             tunnel_id=tunnel_id,
             subdomain="test",
-            url="https://test.tachyon.dev",
+            url="https://test.instanton.dev",
         )
 
         mock_transport.queue_message(encode_message(negotiate_response))
@@ -600,7 +600,7 @@ class TestContextManager:
         ):
             async with client as c:
                 assert c.is_connected
-                assert c.url == "https://test.tachyon.dev"
+                assert c.url == "https://test.instanton.dev"
 
         assert client.state == ConnectionState.CLOSED
 

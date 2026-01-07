@@ -18,7 +18,7 @@ from uuid import uuid4
 
 import pytest
 
-from tachyon.core.protocols import (
+from instanton.core.protocols import (
     GrpcFrame,
     GrpcPassthroughHandler,
     HTTP2ConnectionHandler,
@@ -36,10 +36,10 @@ from tachyon.core.protocols import (
     WebSocketHandler,
     WebSocketOpcode,
 )
-from tachyon.protocol.messages import (
+from instanton.protocol.messages import (
     GrpcFrame as GrpcFrameMessage,
 )
-from tachyon.protocol.messages import (
+from instanton.protocol.messages import (
     GrpcStreamClose,
     GrpcStreamOpen,
     GrpcStreamOpened,
@@ -55,13 +55,13 @@ from tachyon.protocol.messages import (
     encode_message,
     parse_message,
 )
-from tachyon.protocol.messages import (
+from instanton.protocol.messages import (
     UdpDatagram as UdpDatagramMessage,
 )
-from tachyon.protocol.messages import (
+from instanton.protocol.messages import (
     WebSocketFrame as WebSocketFrameMessage,
 )
-from tachyon.protocol.messages import (
+from instanton.protocol.messages import (
     WebSocketOpcode as WsOpcode,
 )
 

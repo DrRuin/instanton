@@ -1,10 +1,10 @@
-# Release Guide for Tachyon
+# Release Guide for Instanton
 
-This document provides step-by-step instructions for releasing Tachyon to the public.
+This document provides step-by-step instructions for releasing Instanton to the public.
 
 ## Pre-Release Checklist
 
-- [x] All tests passing (872 tests)
+- [x] All tests passing (1009 tests)
 - [x] Linting passes (ruff check src/)
 - [x] LICENSE file exists
 - [x] CONTRIBUTING.md exists
@@ -19,19 +19,19 @@ This document provides step-by-step instructions for releasing Tachyon to the pu
 1. **Create a new repository** on GitHub:
    - Go to https://github.com/new
    - Organization: `DrRuin` (or your username)
-   - Repository name: `tachyon`
-   - Description: "Faster-than-light tunneling - expose local services to the internet instantly"
+   - Repository name: `instanton`
+   - Description: "Tunnel through barriers, instantly - expose local services to the internet"
    - Public repository
    - Do NOT initialize with README (we have one)
 
 2. **Initialize git and push**:
    ```bash
-   cd "C:\Users\TITAN 18HX\Desktop\MCP\tachyon"
+   cd "C:\Users\TITAN 18HX\Desktop\MCP\instanton"
    git init
    git add .
-   git commit -m "Initial commit: Tachyon v0.1.0"
+   git commit -m "Initial commit: Instanton v0.1.0"
    git branch -M main
-   git remote add origin https://github.com/DrRuin/tachyon.git
+   git remote add origin https://github.com/DrRuin/instanton.git
    git push -u origin main
    ```
 
@@ -63,10 +63,10 @@ This document provides step-by-step instructions for releasing Tachyon to the pu
    - Click "Add project" (or the project will be created on first publish)
 
 3. **Configure trusted publishing**:
-   - Go to https://pypi.org/manage/project/tachyon/settings/publishing/
+   - Go to https://pypi.org/manage/project/instanton/settings/publishing/
    - Add a new publisher:
      - Owner: `DrRuin`
-     - Repository: `tachyon`
+     - Repository: `instanton`
      - Workflow name: `release.yml`
      - Environment name: `release`
 
@@ -89,7 +89,7 @@ This document provides step-by-step instructions for releasing Tachyon to the pu
 
 ## Step 4: Create First Release
 
-1. **Verify version** in `pyproject.toml` and `src/tachyon/__init__.py`:
+1. **Verify version** in `pyproject.toml` and `src/instanton/__init__.py`:
    ```
    version = "0.1.0"
    __version__ = "0.1.0"
@@ -104,21 +104,21 @@ This document provides step-by-step instructions for releasing Tachyon to the pu
 3. **Create GitHub Release**:
    - Go to Releases > Create a new release
    - Choose tag: `v0.1.0`
-   - Title: `Tachyon v0.1.0`
+   - Title: `Instanton v0.1.0`
    - Description: Copy from CHANGELOG.md
    - Click "Publish release"
 
 4. **Verify PyPI publish**:
    - Check GitHub Actions for successful workflow
-   - Verify at https://pypi.org/project/tachyon/
+   - Verify at https://pypi.org/project/instanton/
 
 ## Step 5: Docker Hub Setup (Optional)
 
 1. **Create Docker Hub account** at https://hub.docker.com/
 
 2. **Create repositories**:
-   - `tachyon/tachyon` (client)
-   - `tachyon/tachyon-server` (server)
+   - `instanton/instanton` (client)
+   - `instanton/instanton-server` (server)
 
 3. **Add GitHub secrets**:
    - `DOCKERHUB_USERNAME`: Your Docker Hub username
@@ -128,8 +128,8 @@ This document provides step-by-step instructions for releasing Tachyon to the pu
 
 1. **Verify installation works**:
    ```bash
-   pip install tachyon
-   tachyon --help
+   pip install instanton
+   instanton --help
    ```
 
 2. **Announce the release**:
@@ -147,7 +147,7 @@ This document provides step-by-step instructions for releasing Tachyon to the pu
 
 1. **Update version** in:
    - `pyproject.toml`: `version = "X.Y.Z"`
-   - `src/tachyon/__init__.py`: `__version__ = "X.Y.Z"`
+   - `src/instanton/__init__.py`: `__version__ = "X.Y.Z"`
 
 2. **Update CHANGELOG.md** with new changes
 
@@ -173,7 +173,7 @@ pip install twine
 twine upload --repository testpypi dist/*
 
 # Install from test PyPI
-pip install --index-url https://test.pypi.org/simple/ tachyon
+pip install --index-url https://test.pypi.org/simple/ instanton
 
 # Check package metadata
 pip install check-wheel-contents

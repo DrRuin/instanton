@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from tachyon.core.fast_transport import (
+from instanton.core.fast_transport import (
     FastQuicTransport,
     FastWebSocketTransport,
     QuicConfig,
@@ -342,7 +342,7 @@ class TestQuicConfig:
         assert config.port == 4433
         assert config.server_name is None
         assert config.verify_ssl is True
-        assert config.alpn_protocols == ["tachyon", "h3"]
+        assert config.alpn_protocols == ["instanton", "h3"]
         assert config.idle_timeout == 30.0
         assert config.enable_0rtt is True
         assert config.enable_migration is True

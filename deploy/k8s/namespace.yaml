@@ -1,8 +1,8 @@
-# Tachyon Namespace
+# Instanton Namespace
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: tachyon
+  name: instanton
   labels:
-    app.kubernetes.io/name: tachyon
-    app.kubernetes.io/part-of: tachyon
+    app.kubernetes.io/name: instanton
+    app.kubernetes.io/part-of: instanton

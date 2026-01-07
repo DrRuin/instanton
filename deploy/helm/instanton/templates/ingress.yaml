@@ -1,0 +1,60 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "instanton.fullname" . }}
+  labels:
+    {{- include "instanton.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - "*.{{ .Values.domain }}"
+        - "{{ .Values.domain }}"
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    # Wildcard for tunnel subdomains
+    - host: "*.{{ .Values.domain }}"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "instanton.fullname" . }}-https
+                port:
+                  number: {{ .Values.service.https.port }}
+    # Control plane for tunnel clients
+    - host: "{{ .Values.domain }}"
+      http:
+        paths:
+          - path: /tunnel
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "instanton.fullname" . }}-control
+                port:
+                  number: {{ .Values.service.control.port }}
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "instanton.fullname" . }}-control
+                port:
+                  number: {{ .Values.service.control.port }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "instanton.fullname" . }}-https
+                port:
+                  number: {{ .Values.service.https.port }}
+{{- end }}

@@ -7,8 +7,8 @@ from uuid import uuid4
 
 import pytest
 
-from tachyon.core.config import ServerConfig
-from tachyon.protocol.messages import (
+from instanton.core.config import ServerConfig
+from instanton.protocol.messages import (
     CompressionType,
     ConnectRequest,
     ConnectResponse,
@@ -22,7 +22,7 @@ from tachyon.protocol.messages import (
     decode_message,
     encode_message,
 )
-from tachyon.server.relay import RelayServer, RequestContext, TunnelConnection
+from instanton.server.relay import RelayServer, RequestContext, TunnelConnection
 
 
 @pytest.fixture
@@ -415,7 +415,7 @@ class TestHttpRequestRouting:
         response = await relay_server._handle_http_request(mock_request)
 
         assert response.status == 200
-        assert "Tachyon" in response.text
+        assert "Instanton" in response.text
 
     @pytest.mark.asyncio
     async def test_unknown_subdomain_returns_404(self, relay_server):

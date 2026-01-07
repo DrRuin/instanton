@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from tachyon.observability.circuit_breaker import (
+from instanton.observability.circuit_breaker import (
     CircuitBreaker,
     CircuitBreakerConfig,
     CircuitBreakerRegistry,

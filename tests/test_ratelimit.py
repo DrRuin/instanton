@@ -5,7 +5,7 @@ import time
 
 import pytest
 
-from tachyon.security.ratelimit import (
+from instanton.security.ratelimit import (
     AdaptiveRateLimiter,
     LoadMetrics,
     RateLimitConfig,

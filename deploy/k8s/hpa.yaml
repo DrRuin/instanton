@@ -1,17 +1,17 @@
-# Tachyon Horizontal Pod Autoscaler
+# Instanton Horizontal Pod Autoscaler
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: tachyon-server
-  namespace: tachyon
+  name: instanton-server
+  namespace: instanton
   labels:
-    app.kubernetes.io/name: tachyon
+    app.kubernetes.io/name: instanton
     app.kubernetes.io/component: server
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: tachyon-server
+    name: instanton-server
   minReplicas: 2
   maxReplicas: 10
   metrics:
