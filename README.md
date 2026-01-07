@@ -44,12 +44,12 @@ pip install instanton && instanton --port 8000
 <br/>
 
 <p align="center">
-  <a href="#-quick-start">Quick Start</a> -
-  <a href="#-why-instanton">Why Instanton</a> -
-  <a href="#-features">Features</a> -
-  <a href="#-benchmarks">Benchmarks</a> -
-  <a href="#-deployment">Deployment</a> -
-  <a href="#-docs">Docs</a>
+  <a href="#quick-start">Quick Start</a> -
+  <a href="#why-instanton">Why Instanton</a> -
+  <a href="#features">Features</a> -
+  <a href="#benchmarks">Benchmarks</a> -
+  <a href="#deployment">Deployment</a> -
+  <a href="#configuration">Configuration</a>
 </p>
 
 <br/>
