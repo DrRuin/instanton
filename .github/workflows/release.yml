@@ -54,9 +54,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      - name: Extract version and repo
+        id: meta
+        run: |
+          echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          echo "REPO=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
 
       - name: Build and push client image
         uses: docker/build-push-action@v5
@@ -65,8 +67,8 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}
-            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ steps.meta.outputs.REPO }}:${{ steps.meta.outputs.VERSION }}
+            ghcr.io/${{ steps.meta.outputs.REPO }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -77,7 +79,7 @@ jobs:
           file: ./Dockerfile.server
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}-server:${{ steps.version.outputs.VERSION }}
-            ghcr.io/${{ github.repository }}-server:latest
+            ghcr.io/${{ steps.meta.outputs.REPO }}-server:${{ steps.meta.outputs.VERSION }}
+            ghcr.io/${{ steps.meta.outputs.REPO }}-server:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
