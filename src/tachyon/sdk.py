@@ -338,7 +338,7 @@ async def forward(
     )
 
     # Create tunnel client
-    client = TunnelClient(config=client_config)
+    client = TunnelClient(local_port=local_port, config=client_config)
 
     # Register callbacks
     if on_connect:
@@ -361,7 +361,7 @@ async def forward(
 
     listener = Listener(
         url=url,
-        subdomain=client._subdomain or "",
+        subdomain=client.subdomain or "",
         local_port=local_port,
         tunnel_id=str(client._tunnel_id) if client._tunnel_id else None,
         _client=client,

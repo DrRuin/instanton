@@ -744,7 +744,8 @@ class RequestResponseSanitizer:
         result.headers = self.header_sanitizer.sanitize_response_headers(headers)
 
         # Sanitize cookies
-        sanitized_with_cookies = self.cookie_sanitizer.sanitize_cookies(result.headers)
+        headers_for_cookies: dict[str, str | list[str]] = dict(result.headers)
+        sanitized_with_cookies = self.cookie_sanitizer.sanitize_cookies(headers_for_cookies)
         result.headers = {
             k: v if isinstance(v, str) else v[0] for k, v in sanitized_with_cookies.items()
         }

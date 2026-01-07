@@ -172,11 +172,12 @@ class WebSocketTransport(Transport):
             except Exception as e:
                 logger.warning("Callback error", error=str(e))
 
-    async def connect(self, addr: str) -> None:
+    async def connect(self, addr: str, *, path: str | None = None) -> None:
         """Connect via WebSocket with timeout.
 
         Args:
             addr: Server address (host:port or full URL).
+            path: Optional path to append to the WebSocket URL.
         """
         self._addr = addr
         self._shutdown = False
@@ -741,11 +742,12 @@ class QuicTransport(Transport):
             except Exception as e:
                 logger.warning("Callback error", error=str(e))
 
-    async def connect(self, addr: str) -> None:
+    async def connect(self, addr: str, *, path: str | None = None) -> None:
         """Connect via QUIC.
 
         Args:
             addr: Address in format "host:port" or just "host" (default port 4433)
+            path: Optional path for the connection (not used in QUIC but for API compatibility).
         """
         self._addr = addr
         self._shutdown = False

@@ -97,9 +97,9 @@ class NegotiateRequest(BaseModel):
     client_version: int = PROTOCOL_VERSION
     supported_compressions: list[int] = Field(
         default_factory=lambda: [
-            CompressionType.NONE,
-            CompressionType.LZ4,
-            CompressionType.ZSTD,
+            int(CompressionType.NONE),
+            int(CompressionType.LZ4),
+            int(CompressionType.ZSTD),
         ]
     )
     supports_streaming: bool = True

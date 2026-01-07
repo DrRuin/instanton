@@ -178,7 +178,7 @@ class BufferPool:
         # If pool is full, let the buffer be garbage collected
 
     @property
-    def stats(self) -> dict[str, int]:
+    def stats(self) -> dict[str, int | float]:
         """Get pool statistics."""
         return {
             "hits": self._hits,

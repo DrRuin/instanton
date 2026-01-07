@@ -215,7 +215,7 @@ async def start_tunnel(
             f"[green]✓ Tunnel established![/green]\n\n"
             f"[bold]Public URL:[/bold] [cyan]{url}[/cyan]\n"
             f"[bold]Forwarding to:[/bold] http://localhost:{port}\n"
-            f"[bold]Subdomain:[/bold] {client._subdomain or 'auto-assigned'}"
+            f"[bold]Subdomain:[/bold] {client.subdomain or 'auto-assigned'}"
         )
         if no_request_timeout:
             panel_content += "\n[bold]Request Timeout:[/bold] [green]indefinite[/green]"
@@ -494,13 +494,14 @@ def replay(url: str, output: str | None):
     console.print("[yellow]Request replay feature coming soon![/yellow]")
 
 
-def _format_bytes(num_bytes: int) -> str:
+def _format_bytes(num_bytes: int | float) -> str:
     """Format bytes into human readable string."""
+    value: float = float(num_bytes)
     for unit in ["B", "KB", "MB", "GB"]:
-        if abs(num_bytes) < 1024.0:
-            return f"{num_bytes:.1f} {unit}"
-        num_bytes /= 1024.0
-    return f"{num_bytes:.1f} TB"
+        if abs(value) < 1024.0:
+            return f"{value:.1f} {unit}"
+        value /= 1024.0
+    return f"{value:.1f} TB"
 
 
 if __name__ == "__main__":

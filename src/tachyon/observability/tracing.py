@@ -68,6 +68,7 @@ class TachyonTracer:
 
     _instance: TachyonTracer | None = None
     _lock = threading.Lock()
+    _initialized: bool = False
 
     def __new__(cls) -> TachyonTracer:
         """Singleton pattern for tracer instance."""

@@ -52,6 +52,7 @@ class TachyonMetrics:
 
     _instance: TachyonMetrics | None = None
     _lock = threading.Lock()
+    _initialized: bool = False
 
     def __new__(cls, registry: CollectorRegistry | None = None) -> TachyonMetrics:
         """Singleton pattern to ensure single metrics instance."""

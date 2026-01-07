@@ -330,9 +330,9 @@ class TrafficStorage:
                 request.status = RequestStatus.SUCCESS
 
         # Notify subscribers
-        request = self._requests.get(response.request_id)
-        if request:
-            entry = TrafficEntry(request=request, response=response)
+        notify_request = self._requests.get(response.request_id)
+        if notify_request:
+            entry = TrafficEntry(request=notify_request, response=response)
             for queue in self._subscribers:
                 with contextlib.suppress(asyncio.QueueFull):
                     queue.put_nowait(entry)
@@ -367,9 +367,9 @@ class TrafficStorage:
         async with self._lock:
             # Get all entries in order
             entries = []
-            order = list(self._request_order)
+            order: list[UUID] = list(self._request_order)
             if descending:
-                order = reversed(order)
+                order = list(reversed(order))
 
             for req_id in order:
                 request = self._requests.get(req_id)

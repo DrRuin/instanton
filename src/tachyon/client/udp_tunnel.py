@@ -372,6 +372,8 @@ class UdpTunnelClient:
                 self._transport.recv(),
                 timeout=self.config.connect_timeout,
             )
+            if response is None:
+                raise RuntimeError("No response from server")
             decoded = UdpRelayMessage.decode(response)
 
             if decoded is None:
@@ -475,6 +477,8 @@ class UdpTunnelClient:
                     self._transport.recv(),
                     timeout=self.config.keepalive_interval * 2,
                 )
+                if data is None:
+                    continue
 
                 decoded = UdpRelayMessage.decode(data)
                 if decoded is None:

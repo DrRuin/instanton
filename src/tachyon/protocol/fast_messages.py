@@ -135,9 +135,11 @@ def compress_fast(data: bytes, compression: CompressionType) -> bytes:
     if compression == CompressionType.NONE or len(data) < MIN_COMPRESSION_SIZE:
         return data
     elif compression == CompressionType.LZ4:
-        return lz4.frame.compress(data, compression_level=0)  # Fastest
+        result: bytes = lz4.frame.compress(data, compression_level=0)  # Fastest
+        return result
     elif compression == CompressionType.ZSTD:
-        return _zstd_compressor.compress(data)
+        result = _zstd_compressor.compress(data)
+        return result
     return data
 
 
@@ -146,9 +148,11 @@ def decompress_fast(data: bytes, compression: CompressionType) -> bytes:
     if compression == CompressionType.NONE:
         return data
     elif compression == CompressionType.LZ4:
-        return lz4.frame.decompress(data)
+        result: bytes = lz4.frame.decompress(data)
+        return result
     elif compression == CompressionType.ZSTD:
-        return _zstd_decompressor.decompress(data)
+        result = _zstd_decompressor.decompress(data)
+        return result
     return data
 
 
@@ -157,12 +161,13 @@ def decompress_fast(data: bytes, compression: CompressionType) -> bytes:
 # ==============================================================================
 
 
-class FastMessage(msgspec.Struct, array_like=True, frozen=True, gc=False):
+class FastMessage(msgspec.Struct, array_like=True, frozen=True, gc=False, kw_only=True):
     """Base class for all fast messages.
 
     Using array_like=True removes field names from wire format.
     Using frozen=True enables caching and thread safety.
     Using gc=False avoids GC tracking overhead for small objects.
+    Using kw_only=True for consistent initialization.
     """
 
     pass
@@ -173,7 +178,7 @@ class FastMessage(msgspec.Struct, array_like=True, frozen=True, gc=False):
 # ==============================================================================
 
 
-class NegotiateRequest(FastMessage):
+class NegotiateRequest(FastMessage, frozen=True):
     """Client negotiation request."""
 
     type: int = MessageType.NEGOTIATE
@@ -187,7 +192,7 @@ class NegotiateRequest(FastMessage):
     chunk_size: int = CHUNK_SIZE
 
 
-class NegotiateResponse(FastMessage):
+class NegotiateResponse(FastMessage, frozen=True):
     """Server negotiation response."""
 
     type: int = MessageType.NEGOTIATE_RESPONSE
@@ -204,7 +209,7 @@ class NegotiateResponse(FastMessage):
 # ==============================================================================
 
 
-class ConnectRequest(FastMessage):
+class ConnectRequest(FastMessage, frozen=True):
     """Client connect request."""
 
     type: int = MessageType.CONNECT
@@ -214,7 +219,7 @@ class ConnectRequest(FastMessage):
     auth_token: str | None = None
 
 
-class ConnectResponse(FastMessage):
+class ConnectResponse(FastMessage, frozen=True):
     """Server connect response."""
 
     type: int = MessageType.CONNECTED
@@ -230,7 +235,7 @@ class ConnectResponse(FastMessage):
 # ==============================================================================
 
 
-class HttpRequest(FastMessage):
+class HttpRequest(FastMessage, frozen=True):
     """HTTP request through tunnel."""
 
     type: int = MessageType.HTTP_REQUEST
@@ -241,7 +246,7 @@ class HttpRequest(FastMessage):
     body: bytes = b""
 
 
-class HttpResponse(FastMessage):
+class HttpResponse(FastMessage, frozen=True):
     """HTTP response from local service."""
 
     type: int = MessageType.HTTP_RESPONSE
@@ -256,7 +261,7 @@ class HttpResponse(FastMessage):
 # ==============================================================================
 
 
-class ChunkStart(FastMessage):
+class ChunkStart(FastMessage, frozen=True):
     """Start of chunked transfer."""
 
     type: int = MessageType.CHUNK_START
@@ -266,7 +271,7 @@ class ChunkStart(FastMessage):
     content_type: str = "application/octet-stream"
 
 
-class ChunkData(FastMessage):
+class ChunkData(FastMessage, frozen=True):
     """Chunk of data in streaming transfer."""
 
     type: int = MessageType.CHUNK_DATA
@@ -276,7 +281,7 @@ class ChunkData(FastMessage):
     final: bool = False
 
 
-class ChunkEnd(FastMessage):
+class ChunkEnd(FastMessage, frozen=True):
     """End of chunked transfer."""
 
     type: int = MessageType.CHUNK_END
@@ -285,7 +290,7 @@ class ChunkEnd(FastMessage):
     checksum: str | None = None
 
 
-class ChunkAck(FastMessage):
+class ChunkAck(FastMessage, frozen=True):
     """Acknowledgment of received chunks."""
 
     type: int = MessageType.CHUNK_ACK
@@ -299,14 +304,14 @@ class ChunkAck(FastMessage):
 # ==============================================================================
 
 
-class Ping(FastMessage):
+class Ping(FastMessage, frozen=True):
     """Keep-alive ping - just timestamp."""
 
     type: int = MessageType.PING
     ts: int = 0  # Unix timestamp ms
 
 
-class Pong(FastMessage):
+class Pong(FastMessage, frozen=True):
     """Keep-alive pong - timestamps for latency measurement."""
 
     type: int = MessageType.PONG
@@ -314,7 +319,7 @@ class Pong(FastMessage):
     server_ts: int = 0  # Server timestamp
 
 
-class Disconnect(FastMessage):
+class Disconnect(FastMessage, frozen=True):
     """Graceful disconnect."""
 
     type: int = MessageType.DISCONNECT
@@ -326,7 +331,7 @@ class Disconnect(FastMessage):
 # ==============================================================================
 
 
-class TcpOpen(FastMessage):
+class TcpOpen(FastMessage, frozen=True):
     """Open TCP tunnel."""
 
     type: int = MessageType.TCP_OPEN
@@ -335,7 +340,7 @@ class TcpOpen(FastMessage):
     port: int = 0
 
 
-class TcpOpened(FastMessage):
+class TcpOpened(FastMessage, frozen=True):
     """TCP tunnel opened."""
 
     type: int = MessageType.TCP_OPENED
@@ -344,7 +349,7 @@ class TcpOpened(FastMessage):
     error: str | None = None
 
 
-class TcpData(FastMessage):
+class TcpData(FastMessage, frozen=True):
     """TCP data."""
 
     type: int = MessageType.TCP_DATA
@@ -354,7 +359,7 @@ class TcpData(FastMessage):
     final: bool = False
 
 
-class TcpClose(FastMessage):
+class TcpClose(FastMessage, frozen=True):
     """Close TCP tunnel."""
 
     type: int = MessageType.TCP_CLOSE
@@ -367,7 +372,7 @@ class TcpClose(FastMessage):
 # ==============================================================================
 
 
-class UdpOpen(FastMessage):
+class UdpOpen(FastMessage, frozen=True):
     """Open UDP tunnel."""
 
     type: int = MessageType.UDP_OPEN
@@ -376,7 +381,7 @@ class UdpOpen(FastMessage):
     port: int = 0
 
 
-class UdpOpened(FastMessage):
+class UdpOpened(FastMessage, frozen=True):
     """UDP tunnel opened."""
 
     type: int = MessageType.UDP_OPENED
@@ -385,7 +390,7 @@ class UdpOpened(FastMessage):
     error: str | None = None
 
 
-class UdpDatagram(FastMessage):
+class UdpDatagram(FastMessage, frozen=True):
     """UDP datagram."""
 
     type: int = MessageType.UDP_DATAGRAM
@@ -394,7 +399,7 @@ class UdpDatagram(FastMessage):
     data: bytes = b""
 
 
-class UdpClose(FastMessage):
+class UdpClose(FastMessage, frozen=True):
     """Close UDP tunnel."""
 
     type: int = MessageType.UDP_CLOSE
@@ -407,7 +412,7 @@ class UdpClose(FastMessage):
 # ==============================================================================
 
 
-class WsUpgrade(FastMessage):
+class WsUpgrade(FastMessage, frozen=True):
     """WebSocket upgrade request."""
 
     type: int = MessageType.WS_UPGRADE
@@ -418,7 +423,7 @@ class WsUpgrade(FastMessage):
     protocols: tuple[str, ...] | None = None
 
 
-class WsUpgradeResponse(FastMessage):
+class WsUpgradeResponse(FastMessage, frozen=True):
     """WebSocket upgrade response."""
 
     type: int = MessageType.WS_UPGRADE_RESPONSE
@@ -430,7 +435,7 @@ class WsUpgradeResponse(FastMessage):
     error: str | None = None
 
 
-class WsFrame(FastMessage):
+class WsFrame(FastMessage, frozen=True):
     """WebSocket frame."""
 
     type: int = MessageType.WS_FRAME
@@ -441,7 +446,7 @@ class WsFrame(FastMessage):
     fin: bool = True
 
 
-class WsClose(FastMessage):
+class WsClose(FastMessage, frozen=True):
     """WebSocket close."""
 
     type: int = MessageType.WS_CLOSE
@@ -455,7 +460,7 @@ class WsClose(FastMessage):
 # ==============================================================================
 
 
-class GrpcOpen(FastMessage):
+class GrpcOpen(FastMessage, frozen=True):
     """Open gRPC stream."""
 
     type: int = MessageType.GRPC_OPEN
@@ -467,7 +472,7 @@ class GrpcOpen(FastMessage):
     timeout_ms: int | None = None
 
 
-class GrpcOpened(FastMessage):
+class GrpcOpened(FastMessage, frozen=True):
     """gRPC stream opened."""
 
     type: int = MessageType.GRPC_OPENED
@@ -478,7 +483,7 @@ class GrpcOpened(FastMessage):
     error: str | None = None
 
 
-class GrpcFrame(FastMessage):
+class GrpcFrame(FastMessage, frozen=True):
     """gRPC frame."""
 
     type: int = MessageType.GRPC_FRAME
@@ -490,7 +495,7 @@ class GrpcFrame(FastMessage):
     final: bool = False
 
 
-class GrpcTrailers(FastMessage):
+class GrpcTrailers(FastMessage, frozen=True):
     """gRPC trailing metadata."""
 
     type: int = MessageType.GRPC_TRAILERS
@@ -501,7 +506,7 @@ class GrpcTrailers(FastMessage):
     trailers: dict[str, str] | None = None
 
 
-class GrpcClose(FastMessage):
+class GrpcClose(FastMessage, frozen=True):
     """Close gRPC stream."""
 
     type: int = MessageType.GRPC_CLOSE
@@ -663,7 +668,8 @@ class FastCodec:
         if decoder is None:
             raise ValueError(f"Unknown message type: {msg_type}")
 
-        return decoder.decode(payload)
+        msg: FastMessage = decoder.decode(payload)
+        return msg
 
     def decode_type(self, data: bytes | memoryview) -> int:
         """Quickly decode just the message type without full deserialization."""

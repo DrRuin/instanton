@@ -117,7 +117,7 @@ class SensitiveDataFilter:
         Returns:
             Redacted dictionary
         """
-        result = {}
+        result: dict[str, Any] = {}
         for key, value in data.items():
             key_lower = key.lower()
             if any(sk in key_lower for sk in self.sensitive_keys):
@@ -354,7 +354,7 @@ class JSONFormatter(logging.Formatter):
 class RequestContextFilter(logging.Filter):
     """Filter that adds request context to log records."""
 
-    _context: dict[str, dict[str, Any]] = {}
+    _context: dict[int, dict[str, Any]] = {}
     _lock = threading.Lock()
 
     @classmethod
@@ -366,6 +366,8 @@ class RequestContextFilter(logging.Filter):
             **kwargs: Additional context values
         """
         thread_id = threading.current_thread().ident
+        if thread_id is None:
+            return
         with cls._lock:
             cls._context[thread_id] = {
                 "request_id": request_id,
@@ -376,6 +378,8 @@ class RequestContextFilter(logging.Filter):
     def clear_context(cls) -> None:
         """Clear context for current thread."""
         thread_id = threading.current_thread().ident
+        if thread_id is None:
+            return
         with cls._lock:
             cls._context.pop(thread_id, None)
 
@@ -387,6 +391,8 @@ class RequestContextFilter(logging.Filter):
             Context dictionary
         """
         thread_id = threading.current_thread().ident
+        if thread_id is None:
+            return {}
         with cls._lock:
             return cls._context.get(thread_id, {}).copy()
 
@@ -410,6 +416,7 @@ class TachyonLogger:
 
     _instance: TachyonLogger | None = None
     _lock = threading.Lock()
+    _initialized: bool = False
 
     def __new__(cls) -> TachyonLogger:
         """Singleton pattern for logger instance."""

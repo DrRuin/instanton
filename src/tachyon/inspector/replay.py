@@ -231,6 +231,15 @@ class RequestReplayer:
                         continue
                     raise
 
+            # If we get here, all retries were exhausted without success
+            duration_ms = (time.time() - start_time) * 1000
+            return ReplayResult(
+                success=False,
+                original_request_id=request_id,
+                duration_ms=duration_ms,
+                error="Max retries exhausted",
+            )
+
         except TimeoutError:
             duration_ms = (time.time() - start_time) * 1000
             return ReplayResult(

@@ -437,6 +437,7 @@ class RateLimitManager:
         self._cache_ttl = cache_ttl
 
         # Global limiter
+        self._global_limiter: AdaptiveRateLimiter | SlidingWindowLimiter
         if enable_adaptive:
             self._global_limiter = AdaptiveRateLimiter(
                 base_limit=global_limit,

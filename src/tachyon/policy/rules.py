@@ -177,7 +177,7 @@ class RuleCondition(BaseModel):
 
         # Handle dotted path
         parts = field_str.split(".")
-        value = context
+        value: Any = context
         for part in parts:
             if isinstance(value, dict):
                 value = value.get(part)

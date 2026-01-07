@@ -58,7 +58,7 @@ class ComponentHealth:
         Returns:
             Dictionary with health information
         """
-        result = {
+        result: dict[str, Any] = {
             "name": self.name,
             "status": self.status.value,
         }
@@ -89,7 +89,7 @@ class HealthResult:
         Returns:
             Dictionary with full health information
         """
-        result = {
+        result: dict[str, Any] = {
             "status": self.status.value,
             "timestamp": self.timestamp.isoformat(),
         }
@@ -116,6 +116,7 @@ class HealthCheck:
 
     _instance: HealthCheck | None = None
     _lock = threading.Lock()
+    _initialized: bool = False
 
     def __new__(cls) -> HealthCheck:
         """Singleton pattern for health checker."""
@@ -398,21 +399,25 @@ class HealthCheck:
             try:
                 registry = get_circuit_breaker_registry()
                 for name, cb in registry.get_all().items():
-                    all_checks[f"circuit_breaker.{name}"] = lambda cb=cb: ComponentHealth(
-                        name=f"circuit_breaker.{cb.name}",
-                        status=HealthStatus.HEALTHY
-                        if cb.state == CircuitState.CLOSED
-                        else (
-                            HealthStatus.DEGRADED
-                            if cb.state == CircuitState.HALF_OPEN
-                            else HealthStatus.UNHEALTHY
-                        ),
-                        details={
-                            "state": cb.state.value,
-                            "failure_count": cb.failure_count,
-                            "success_count": cb.success_count,
-                        },
-                    )
+
+                    def make_cb_check(cb_ref: Any = cb) -> ComponentHealth:
+                        return ComponentHealth(
+                            name=f"circuit_breaker.{cb_ref.name}",
+                            status=HealthStatus.HEALTHY
+                            if cb_ref.state == CircuitState.CLOSED
+                            else (
+                                HealthStatus.DEGRADED
+                                if cb_ref.state == CircuitState.HALF_OPEN
+                                else HealthStatus.UNHEALTHY
+                            ),
+                            details={
+                                "state": cb_ref.state.value,
+                                "failure_count": cb_ref.failure_count,
+                                "success_count": cb_ref.success_count,
+                            },
+                        )
+
+                    all_checks[f"circuit_breaker.{name}"] = make_cb_check
             except Exception:
                 pass
 
