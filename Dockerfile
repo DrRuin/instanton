@@ -42,12 +42,8 @@ WORKDIR /app
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Copy application code
+# Copy application code (for reference/debugging, package already installed in venv)
 COPY src/ ./src/
-COPY pyproject.toml .
-
-# Install the package
-RUN pip install --no-cache-dir -e .
 
 # Switch to non-root user
 USER instanton
