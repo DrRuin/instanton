@@ -661,29 +661,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 <br/>
 
 <p align="center">
-  <strong>
-    <a href="https://github.com/DrRuin/instanton">GitHub</a> -
-    <a href="https://pypi.org/project/instanton/">PyPI</a> -
-    <a href="https://github.com/DrRuin/instanton/issues">Issues</a> -
-    <a href="https://github.com/DrRuin/instanton/discussions">Discussions</a>
-  </strong>
-</p>
-
-<p align="center">
-  <sub>Built with ❤️ by developers, for developers</sub>
-</p>
-
-<p align="center">
   <sub>Life's too short for port forwarding and firewall configs.</sub>
 </p>
 
 <br/>
-
-<p align="center">
-  <a href="https://github.com/DrRuin/instanton/stargazers">
-    <img src="https://img.shields.io/github/stars/DrRuin/instanton?style=social" alt="Stars"/>
-  </a>
-  <a href="https://github.com/DrRuin/instanton/network/members">
-    <img src="https://img.shields.io/github/forks/DrRuin/instanton?style=social" alt="Forks"/>
-  </a>
-</p>
