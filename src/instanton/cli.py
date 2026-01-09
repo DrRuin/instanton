@@ -30,7 +30,7 @@ BANNER = """
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
 @click.option("--auth-token", envvar="INSTANTON_AUTH_TOKEN", help="Authentication token")
 @click.option("--inspect", "-i", is_flag=True, help="Enable request inspector")
-@click.option("--quic/--no-quic", default=False, help="Use QUIC transport (default: no, uses WebSocket)")
+@click.option("--quic/--no-quic", default=False, help="Use QUIC transport")
 @click.option(
     "--timeout",
     "-t",
@@ -419,7 +419,7 @@ async def start_tcp_tunnel_cli(
 @click.argument("port", type=int)
 @click.option("--remote-port", "-r", type=int, help="Remote port to bind on server")
 @click.option("--server", default="instanton.tech", help="Instanton server address")
-@click.option("--quic/--no-quic", default=False, help="Use QUIC transport (default: no, uses WebSocket)")
+@click.option("--quic/--no-quic", default=False, help="Use QUIC transport")
 def udp(port: int, remote_port: int | None, server: str, quic: bool):
     """Start a UDP tunnel for datagram protocols.
 
