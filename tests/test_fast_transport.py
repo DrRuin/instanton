@@ -190,10 +190,10 @@ class TestFastWebSocketTransportBuildUrl:
         assert url == "wss://example.com:443/tunnel"
 
     def test_host_only(self):
-        """Test host only format."""
+        """Test host only format (default port 4443 for control plane)."""
         transport = FastWebSocketTransport()
         url = transport._build_url("example.com")
-        assert url == "wss://example.com:443/tunnel"
+        assert url == "wss://example.com:4443/tunnel"
 
 
 class TestFastWebSocketTransportCallbacks:
