@@ -225,7 +225,7 @@ class WebSocketTransport(Transport):
         # Default to secure WebSocket
         if ":" in addr:
             return f"wss://{addr}/tunnel"
-        return f"wss://{addr}:443/tunnel"
+        return f"wss://{addr}:4443/tunnel"
 
     def _start_heartbeat(self) -> None:
         """Start the heartbeat task."""

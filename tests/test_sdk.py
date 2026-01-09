@@ -135,7 +135,7 @@ class TestInstantonConfig:
         """Test default configuration values."""
         cfg = InstantonConfig()
         assert cfg.auto_reconnect is True
-        assert cfg.use_quic is True
+        assert cfg.use_quic is False  # WebSocket is default for server compatibility
         assert cfg.connect_timeout == 10.0
         assert cfg.keepalive_interval == 30.0
         assert cfg.max_reconnect_attempts == 10

@@ -50,7 +50,7 @@ docker-compose --profile example up -d
 | `INSTANTON_DOMAIN` | Domain for the relay server | `localhost` |
 | `INSTANTON_LOG_LEVEL` | Log level (debug, info, warn, error) | `info` |
 | `INSTANTON_AUTH_TOKEN` | Authentication token for clients | - |
-| `INSTANTON_SERVER` | Relay server address (for client) | `instanton.tech:443` |
+| `INSTANTON_SERVER` | Relay server address (for client) | `instanton.tech:4443` |
 
 ### Volumes
 

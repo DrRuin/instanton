@@ -48,7 +48,7 @@ from instanton.core.config import ClientConfig
 logger = structlog.get_logger()
 
 # Default server - can be overridden via environment or config
-DEFAULT_SERVER = os.environ.get("INSTANTON_SERVER", "instanton.tech:443")
+DEFAULT_SERVER = os.environ.get("INSTANTON_SERVER", "instanton.tech:4443")
 DEFAULT_AUTH_TOKEN = os.environ.get("INSTANTON_AUTH_TOKEN")
 
 
@@ -132,7 +132,7 @@ class InstantonConfig:
         self.server: str = DEFAULT_SERVER
         self.auth_token: str | None = DEFAULT_AUTH_TOKEN
         self.auto_reconnect: bool = True
-        self.use_quic: bool = True
+        self.use_quic: bool = False  # WebSocket is default (server compatibility)
         self.connect_timeout: float = 10.0
         self.keepalive_interval: float = 30.0
         self.max_reconnect_attempts: int = 10

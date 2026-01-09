@@ -7,7 +7,7 @@ Complete guide to deploy Instanton relay server on your VPS so users can get `*.
 - VPS with Ubuntu 22.04+ (or similar Linux distro)
 - Root/sudo access
 - Domain: `instanton.tech` (from Hostinger)
-- Ports 80, 443, and 8443 open
+- Ports 80, 443, and 4443 open
 
 ## Architecture
 
@@ -122,10 +122,10 @@ docker ps
 docker logs instanton-server
 
 # Test health endpoint
-curl http://localhost:8443/health
+curl http://localhost:4443/health
 
 # Test from internet (wait for DNS propagation)
-curl https://instanton.tech:8443/health
+curl https://instanton.tech:4443/health
 ```
 
 ## Step 6: Setup Systemd Service (Auto-start on boot)
@@ -178,8 +178,8 @@ echo "0 0,12 * * * root /opt/instanton/renew-certs.sh" | sudo tee /etc/cron.d/in
 # Using UFW (Ubuntu)
 sudo ufw allow 22/tcp     # SSH
 sudo ufw allow 80/tcp     # HTTP (for cert renewal)
-sudo ufw allow 443/tcp    # HTTPS
-sudo ufw allow 8443/tcp   # Control plane
+sudo ufw allow 443/tcp    # HTTPS (public traffic)
+sudo ufw allow 4443/tcp   # Control plane (tunnel clients)
 sudo ufw enable
 ```
 
@@ -224,8 +224,8 @@ docker-compose logs -f
 ### Connection refused
 ```bash
 # Check ports are open
-netstat -tlnp | grep -E '443|8443'
-ss -tlnp | grep -E '443|8443'
+netstat -tlnp | grep -E '443|4443'
+ss -tlnp | grep -E '443|4443'
 ```
 
 ## Production Recommendations

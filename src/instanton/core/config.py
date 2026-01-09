@@ -107,10 +107,10 @@ class AuthConfig(BaseModel):
 class ClientConfig(BaseModel):
     """Client configuration."""
 
-    server_addr: str = "instanton.tech:443"
+    server_addr: str = "instanton.tech:4443"
     local_port: int = 8080
     subdomain: str | None = None
-    use_quic: bool = True
+    use_quic: bool = False  # WebSocket is default (server compatibility)
     connect_timeout: float = 10.0
     idle_timeout: float = 300.0
     keepalive_interval: float = 30.0

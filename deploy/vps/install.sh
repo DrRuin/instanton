@@ -68,8 +68,8 @@ echo -e "${GREEN}✓ Instanton downloaded${NC}"
 echo -e "\n${YELLOW}[4/7] Configuring firewall...${NC}"
 ufw allow 22/tcp   # SSH
 ufw allow 80/tcp   # HTTP (cert renewal)
-ufw allow 443/tcp  # HTTPS
-ufw allow 8443/tcp # Control plane
+ufw allow 443/tcp  # HTTPS (public traffic)
+ufw allow 4443/tcp # Control plane (tunnel clients)
 ufw --force enable
 
 echo -e "${GREEN}✓ Firewall configured${NC}"
@@ -175,7 +175,7 @@ echo -e "${GREEN}                    Installation Complete!${NC}"
 echo -e "${GREEN}============================================================================${NC}"
 echo ""
 echo -e "Server Status:"
-echo -e "  ${BLUE}Health Check:${NC} curl https://${DOMAIN}:8443/health"
+echo -e "  ${BLUE}Health Check:${NC} curl https://${DOMAIN}:4443/health"
 echo ""
 echo -e "Users can now run:"
 echo -e "  ${BLUE}pip install instanton${NC}"

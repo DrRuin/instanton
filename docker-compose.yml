@@ -15,8 +15,8 @@ services:
       dockerfile: Dockerfile.server
     container_name: instanton-server
     ports:
-      - "443:443"      # HTTPS (public traffic)
-      - "8443:8443"    # Control plane (tunnel clients)
+      - "443:443"      # HTTPS (public traffic to tunnels)
+      - "4443:4443"    # Control plane (tunnel WebSocket)
       - "9090:9090"    # Metrics (Prometheus)
     environment:
       - INSTANTON_DOMAIN=${INSTANTON_DOMAIN:-instanton.tech}
@@ -25,7 +25,7 @@ services:
       - ./certs:/certs:ro
       - instanton-data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8443/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:4443/health"]
       interval: 30s
       timeout: 10s
       retries: 3

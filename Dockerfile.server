@@ -57,18 +57,18 @@ ENV INSTANTON_CERT_PATH="/certs/cert.pem"
 ENV INSTANTON_KEY_PATH="/certs/key.pem"
 
 # Expose ports
-# 443  - HTTPS (client connections)
-# 8443 - Control plane (tunnel WebSocket)
+# 443  - HTTPS (public traffic to tunnels)
+# 4443 - Control plane (tunnel WebSocket)
 # 9090 - Metrics (Prometheus)
-EXPOSE 443 8443 9090
+EXPOSE 443 4443 9090
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8443/health || exit 1
+    CMD curl -f http://localhost:4443/health || exit 1
 
 # Volumes
 VOLUME ["/certs", "/data"]
 
 # Default command (relay server)
 ENTRYPOINT ["instanton-server"]
-CMD ["--domain", "localhost", "--control-bind", "0.0.0.0:8443", "--https-bind", "0.0.0.0:443"]
+CMD ["--domain", "instanton.tech", "--control-bind", "0.0.0.0:4443", "--https-bind", "0.0.0.0:443"]

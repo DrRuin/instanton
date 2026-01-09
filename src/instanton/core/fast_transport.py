@@ -336,7 +336,7 @@ class FastWebSocketTransport:
             host, port = addr.rsplit(":", 1)
             return f"wss://{host}:{port}/tunnel"
 
-        return f"wss://{addr}:443/tunnel"
+        return f"wss://{addr}:4443/tunnel"
 
     def _record_latency(self, latency_ms: float) -> None:
         """Record latency sample."""
