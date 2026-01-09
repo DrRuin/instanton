@@ -21,6 +21,17 @@ services:
     environment:
       - INSTANTON_DOMAIN=${INSTANTON_DOMAIN:-instanton.tech}
       - INSTANTON_LOG_LEVEL=${INSTANTON_LOG_LEVEL:-info}
+    command:
+      - "--domain"
+      - "${INSTANTON_DOMAIN:-instanton.tech}"
+      - "--control-bind"
+      - "0.0.0.0:4443"
+      - "--https-bind"
+      - "0.0.0.0:443"
+      - "--cert"
+      - "/certs/cert.pem"
+      - "--key"
+      - "/certs/key.pem"
     volumes:
       - ./certs:/certs:ro
       - instanton-data:/data
