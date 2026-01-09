@@ -195,9 +195,7 @@ class WildcardDNSService:
     """
 
     # Pattern: subdomain.IP-IP-IP-IP.domain or IP-IP-IP-IP.domain
-    IP_PATTERN = re.compile(
-        r"^(?:.*\.)?(\d{1,3})-(\d{1,3})-(\d{1,3})-(\d{1,3})\.(.+)$"
-    )
+    IP_PATTERN = re.compile(r"^(?:.*\.)?(\d{1,3})-(\d{1,3})-(\d{1,3})-(\d{1,3})\.(.+)$")
 
     # IPv6 pattern: IP--IP.domain (full or abbreviated)
     IPV6_PATTERN = re.compile(r"^(?:.*\.)?([0-9a-fA-F-]+)\.(.+)$")
@@ -434,13 +432,15 @@ class CertificateGenerator:
             key = CertificateGenerator.generate_private_key(key_type)
 
         # Build subject and issuer (same for self-signed)
-        subject = issuer = x509.Name([
-            x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
-            x509.NameAttribute(NameOID.LOCALITY_NAME, "San Francisco"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, organization),
-            x509.NameAttribute(NameOID.COMMON_NAME, domain),
-        ])
+        subject = issuer = x509.Name(
+            [
+                x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+                x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
+                x509.NameAttribute(NameOID.LOCALITY_NAME, "San Francisco"),
+                x509.NameAttribute(NameOID.ORGANIZATION_NAME, organization),
+                x509.NameAttribute(NameOID.COMMON_NAME, domain),
+            ]
+        )
 
         # Build SAN list
         all_domains = [domain]
@@ -502,9 +502,7 @@ class CertificateGenerator:
         key_pem = CertificateGenerator.key_to_pem(key)
 
         # Calculate fingerprint
-        fingerprint = hashlib.sha256(
-            cert.public_bytes(serialization.Encoding.DER)
-        ).hexdigest()
+        fingerprint = hashlib.sha256(cert.public_bytes(serialization.Encoding.DER)).hexdigest()
 
         return CertificateBundle(
             domain=domain,
@@ -536,13 +534,15 @@ class CertificateGenerator:
         Returns:
             PEM-encoded CSR
         """
-        subject = x509.Name([
-            x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
-            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
-            x509.NameAttribute(NameOID.LOCALITY_NAME, "San Francisco"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, organization),
-            x509.NameAttribute(NameOID.COMMON_NAME, domain),
-        ])
+        subject = x509.Name(
+            [
+                x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+                x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "California"),
+                x509.NameAttribute(NameOID.LOCALITY_NAME, "San Francisco"),
+                x509.NameAttribute(NameOID.ORGANIZATION_NAME, organization),
+                x509.NameAttribute(NameOID.COMMON_NAME, domain),
+            ]
+        )
 
         # Build SAN list
         all_domains = [domain]
@@ -626,13 +626,8 @@ class CertificateGenerator:
         # Extract SANs
         san_domains = []
         try:
-            san_ext = cert.extensions.get_extension_for_oid(
-                ExtensionOID.SUBJECT_ALTERNATIVE_NAME
-            )
-            san_domains = [
-                name.value for name in san_ext.value
-                if isinstance(name, x509.DNSName)
-            ]
+            san_ext = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+            san_domains = [name.value for name in san_ext.value if isinstance(name, x509.DNSName)]
         except x509.ExtensionNotFound:
             pass
 
@@ -649,9 +644,7 @@ class CertificateGenerator:
             key_size = 0
 
         # Calculate fingerprint
-        fingerprint = hashlib.sha256(
-            cert.public_bytes(serialization.Encoding.DER)
-        ).hexdigest()
+        fingerprint = hashlib.sha256(cert.public_bytes(serialization.Encoding.DER)).hexdigest()
 
         return {
             "subject": cert.subject.rfc4514_string(),

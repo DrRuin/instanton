@@ -230,17 +230,13 @@ def _sign_jws(
 ) -> dict[str, str]:
     """Create a JWS (JSON Web Signature)."""
     # Encode protected header
-    protected_b64 = _b64url_encode(
-        json.dumps(protected, separators=(",", ":")).encode()
-    )
+    protected_b64 = _b64url_encode(json.dumps(protected, separators=(",", ":")).encode())
 
     # Encode payload
     if payload == "":
         payload_b64 = ""
     else:
-        payload_b64 = _b64url_encode(
-            json.dumps(payload, separators=(",", ":")).encode()
-        )
+        payload_b64 = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode())
 
     # Sign
     signing_input = f"{protected_b64}.{payload_b64}".encode()
@@ -291,9 +287,7 @@ def _sign_jws(
 class DNSProvider(Protocol):
     """Protocol for DNS providers supporting DNS-01 challenges."""
 
-    async def create_txt_record(
-        self, domain: str, name: str, value: str, ttl: int = 300
-    ) -> str:
+    async def create_txt_record(self, domain: str, name: str, value: str, ttl: int = 300) -> str:
         """Create a TXT record for DNS-01 challenge.
 
         Args:
@@ -402,9 +396,7 @@ class CloudflareDNSProvider:
 
         raise ValueError(f"Could not find Cloudflare zone for {domain}")
 
-    async def create_txt_record(
-        self, domain: str, name: str, value: str, ttl: int = 120
-    ) -> str:
+    async def create_txt_record(self, domain: str, name: str, value: str, ttl: int = 120) -> str:
         """Create a TXT record."""
         zone_id = await self._get_zone_id(domain)
         record_name = f"{name}.{domain}"
@@ -491,9 +483,7 @@ class HostingerDNSProvider:
             "Content-Type": "application/json",
         }
 
-    async def create_txt_record(
-        self, domain: str, name: str, value: str, ttl: int = 300
-    ) -> str:
+    async def create_txt_record(self, domain: str, name: str, value: str, ttl: int = 300) -> str:
         """Create a TXT record via Hostinger API."""
         async with httpx.AsyncClient() as client:
             # First, get domain info
@@ -567,9 +557,7 @@ class ManualDNSProvider:
         self.callback = callback
         self._records: dict[str, str] = {}
 
-    async def create_txt_record(
-        self, domain: str, name: str, value: str, ttl: int = 300
-    ) -> str:
+    async def create_txt_record(self, domain: str, name: str, value: str, ttl: int = 300) -> str:
         """Create a TXT record (manual)."""
         record_name = f"{name}.{domain}"
         record_id = f"manual-{secrets.token_hex(8)}"
@@ -584,14 +572,14 @@ class ManualDNSProvider:
                 value=value,
                 ttl=ttl,
             )
-            print(f"\n{'='*60}")
+            print(f"\n{'=' * 60}")
             print("MANUAL DNS ACTION REQUIRED")
-            print(f"{'='*60}")
+            print(f"{'=' * 60}")
             print("Create TXT record:")
             print(f"  Name:  {record_name}")
             print(f"  Value: {value}")
             print(f"  TTL:   {ttl}")
-            print(f"{'='*60}\n")
+            print(f"{'=' * 60}\n")
 
         self._records[record_id] = record_name
         return record_id
@@ -798,9 +786,7 @@ class FullACMEClient:
             key_type: Account key type ("EC" or "RSA")
         """
         self.email = email
-        self.directory_url = (
-            directory.value if isinstance(directory, ACMEDirectory) else directory
-        )
+        self.directory_url = directory.value if isinstance(directory, ACMEDirectory) else directory
         self.account_key_path = account_key_path
         self.key_type = key_type
 
@@ -1062,9 +1048,7 @@ class FullACMEClient:
 
         return True
 
-    async def poll_authorization(
-        self, authz_url: str, timeout: float = 120.0
-    ) -> ACMEAuthorization:
+    async def poll_authorization(self, authz_url: str, timeout: float = 120.0) -> ACMEAuthorization:
         """Poll authorization until it's valid or invalid.
 
         Args:
@@ -1133,9 +1117,11 @@ class FullACMEClient:
     ) -> x509.CertificateSigningRequest:
         """Create a CSR for the given domains."""
         # Primary domain as CN
-        subject = x509.Name([
-            x509.NameAttribute(NameOID.COMMON_NAME, domains[0]),
-        ])
+        subject = x509.Name(
+            [
+                x509.NameAttribute(NameOID.COMMON_NAME, domains[0]),
+            ]
+        )
 
         # All domains as SANs
         san = x509.SubjectAlternativeName([x509.DNSName(d) for d in domains])
@@ -1415,9 +1401,9 @@ class CaddyManager:
         }
 
         if self.config.acme_ca:
-            caddy_config["apps"]["tls"]["automation"]["policies"][0]["issuers"][0][
-                "ca"
-            ] = self.config.acme_ca
+            caddy_config["apps"]["tls"]["automation"]["policies"][0]["issuers"][0]["ca"] = (
+                self.config.acme_ca
+            )
 
         async with httpx.AsyncClient() as client:
             try:
