@@ -49,7 +49,7 @@ COPY src/ ./src/
 USER instanton
 
 # Default environment variables
-ENV INSTANTON_SERVER="instanton.dev:443"
+ENV INSTANTON_SERVER="instanton.tech:443"
 ENV PYTHONUNBUFFERED=1
 
 # Health check

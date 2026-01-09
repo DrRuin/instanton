@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="instanton_logo.png" alt="Instanton" width="100%"/>
+  <img src="https://raw.githubusercontent.com/DrRuin/instanton/main/instanton_logo.png" alt="Instanton" width="100%"/>
 </p>
 
 <p align="center">
@@ -80,8 +80,8 @@ instanton --port 8000
   ✓ Tunnel established
   ✓ HTTPS certificate provisioned
 
-  Public URL:  https://abc123.instanton.dev
-  Forwarding:  https://abc123.instanton.dev → http://localhost:8000
+  Public URL:  https://abc123.instanton.tech
+  Forwarding:  https://abc123.instanton.tech → http://localhost:8000
 
   Inspector:   http://localhost:4040
 

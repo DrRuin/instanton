@@ -8,10 +8,38 @@ This module provides comprehensive security features including:
 - TLS hardening
 - Request/Response sanitization
 - Zero Trust Network Access (ZTNA)
+- Full ACME/LetsEncrypt support (from scratch)
+- Caddy-style automatic TLS (from scratch)
+- sslip.io-style wildcard DNS (from scratch)
+- instanton.tech domain management
+- Self-hosted relay server support
 """
 
-# Rate limiting (existing)
-# Certificate management (existing)
+# Full ACME/LetsEncrypt support (from scratch)
+from instanton.security.acme import (
+    ACMEAccount,
+    ACMEAuthorization,
+    ACMEChallenge,
+    ACMEDirectory,
+    ACMEOrder,
+    AuthorizationStatus,
+    CaddyConfig,
+    CaddyManager,
+    CertificateAutoRenewal,
+    CertificateResult,
+    ChallengeType,
+    CloudflareDNSProvider,
+    DNSProvider,
+    FullACMEClient,
+    HostingerDNSProvider,
+    HTTP01ChallengeServer,
+    ManualDNSProvider,
+    OrderStatus,
+    WildcardDNSConfig,
+    get_nip_domain,
+    get_public_ip,
+    get_sslip_domain,
+)
 from instanton.security.certificates import (
     ACMEClient,
     CertificateManager,
@@ -21,6 +49,25 @@ from instanton.security.certificates import (
 )
 from instanton.security.certificates import (
     CertificateInfo as CertInfo,
+)
+
+# Certificate Manager (from scratch) - instanton.tech and self-hosted support
+from instanton.security.certmanager import (
+    INSTANTON_DOMAIN,
+    INSTANTON_RELAY_DOMAIN,
+    INSTANTON_WILDCARD,
+    AutoTLSManager,
+    CertificateBundle,
+    CertificateGenerator,
+    CertificateSource,
+    InstantonDomainConfig,
+    InstantonDomainManager,
+    KeyType,
+    SelfHostedConfig,
+    WildcardDNSService,
+)
+from instanton.security.certmanager import (
+    CertificateStore as CertStore,
 )
 
 # DDoS protection (existing)
@@ -144,6 +191,46 @@ __all__ = [
     "CertificateStore",
     "generate_self_signed_cert",
     "parse_certificate_info",
+    # Full ACME/LetsEncrypt support
+    "ACMEDirectory",
+    "ACMEAccount",
+    "ACMEAuthorization",
+    "ACMEChallenge",
+    "ACMEOrder",
+    "AuthorizationStatus",
+    "ChallengeType",
+    "OrderStatus",
+    "CertificateResult",
+    "FullACMEClient",
+    "HTTP01ChallengeServer",
+    "CertificateAutoRenewal",
+    # DNS Providers
+    "DNSProvider",
+    "CloudflareDNSProvider",
+    "HostingerDNSProvider",
+    "ManualDNSProvider",
+    # Caddy integration
+    "CaddyConfig",
+    "CaddyManager",
+    # sslip.io/nip.io support
+    "WildcardDNSConfig",
+    "get_sslip_domain",
+    "get_nip_domain",
+    "get_public_ip",
+    # Certificate Manager (from scratch)
+    "INSTANTON_DOMAIN",
+    "INSTANTON_RELAY_DOMAIN",
+    "INSTANTON_WILDCARD",
+    "CertificateBundle",
+    "CertificateGenerator",
+    "CertificateSource",
+    "KeyType",
+    "CertStore",
+    "AutoTLSManager",
+    "InstantonDomainConfig",
+    "InstantonDomainManager",
+    "SelfHostedConfig",
+    "WildcardDNSService",
     # mTLS
     "ClientCertInfo",
     "ClientCertValidator",

@@ -107,7 +107,7 @@ class AuthConfig(BaseModel):
 class ClientConfig(BaseModel):
     """Client configuration."""
 
-    server_addr: str = "instanton.dev:443"
+    server_addr: str = "instanton.tech:443"
     local_port: int = 8080
     subdomain: str | None = None
     use_quic: bool = True
@@ -247,7 +247,7 @@ class ServerConfig(BaseModel):
 
     https_bind: str = "0.0.0.0:443"
     control_bind: str = "0.0.0.0:4443"
-    base_domain: str = "instanton.dev"
+    base_domain: str = "instanton.tech"
     cert_path: str | None = None
     key_path: str | None = None
     acme_enabled: bool = True

@@ -19,7 +19,7 @@ services:
       - "8443:8443"    # Control plane (tunnel clients)
       - "9090:9090"    # Metrics (Prometheus)
     environment:
-      - INSTANTON_DOMAIN=${INSTANTON_DOMAIN:-localhost}
+      - INSTANTON_DOMAIN=${INSTANTON_DOMAIN:-instanton.tech}
       - INSTANTON_LOG_LEVEL=${INSTANTON_LOG_LEVEL:-info}
     volumes:
       - ./certs:/certs:ro

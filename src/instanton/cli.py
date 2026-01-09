@@ -26,7 +26,7 @@ BANNER = """
 @click.group(invoke_without_command=True)
 @click.option("--port", "-p", type=int, help="Local port to expose")
 @click.option("--subdomain", "-s", help="Request specific subdomain")
-@click.option("--server", default="instanton.dev", help="Instanton server address")
+@click.option("--server", default="instanton.tech", help="Instanton server address")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
 @click.option("--auth-token", envvar="INSTANTON_AUTH_TOKEN", help="Authentication token")
 @click.option("--inspect", "-i", is_flag=True, help="Enable request inspector")
@@ -245,7 +245,7 @@ async def start_tunnel(
 
 
 @main.command()
-@click.option("--server", default="instanton.dev", help="Instanton server address")
+@click.option("--server", default="instanton.tech", help="Instanton server address")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
 def status(server: str, json_output: bool):
     """Show server status and active tunnels.
@@ -332,7 +332,7 @@ def version():
 @main.command()
 @click.argument("port", type=int)
 @click.option("--subdomain", "-s", help="Request specific subdomain")
-@click.option("--server", default="instanton.dev", help="Instanton server address")
+@click.option("--server", default="instanton.tech", help="Instanton server address")
 @click.option("--auth-token", envvar="INSTANTON_AUTH_TOKEN", help="Authentication token")
 def http(port: int, subdomain: str | None, server: str, auth_token: str | None):
     """Start an HTTP tunnel (shorthand command).
@@ -353,7 +353,7 @@ def http(port: int, subdomain: str | None, server: str, auth_token: str | None):
 @main.command()
 @click.argument("port", type=int)
 @click.option("--remote-port", "-r", type=int, help="Remote port to bind on server")
-@click.option("--server", default="instanton.dev", help="Instanton server address")
+@click.option("--server", default="instanton.tech", help="Instanton server address")
 @click.option("--quic/--no-quic", default=False, help="Use QUIC transport")
 def tcp(port: int, remote_port: int | None, server: str, quic: bool):
     """Start a TCP tunnel for non-HTTP protocols.
@@ -418,7 +418,7 @@ async def start_tcp_tunnel_cli(
 @main.command()
 @click.argument("port", type=int)
 @click.option("--remote-port", "-r", type=int, help="Remote port to bind on server")
-@click.option("--server", default="instanton.dev", help="Instanton server address")
+@click.option("--server", default="instanton.tech", help="Instanton server address")
 @click.option("--quic/--no-quic", default=True, help="Use QUIC transport (default: yes)")
 def udp(port: int, remote_port: int | None, server: str, quic: bool):
     """Start a UDP tunnel for datagram protocols.
@@ -489,7 +489,7 @@ def replay(url: str, output: str | None):
 
     Examples:
 
-        instanton replay https://myapp.instanton.dev/api/test
+        instanton replay https://myapp.instanton.tech/api/test
     """
     console.print("[yellow]Request replay feature coming soon![/yellow]")
 

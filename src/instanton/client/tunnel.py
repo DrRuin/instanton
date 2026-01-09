@@ -106,7 +106,7 @@ class TunnelClient:
     def __init__(
         self,
         local_port: int,
-        server_addr: str = "instanton.dev",
+        server_addr: str = "instanton.tech",
         subdomain: str | None = None,
         use_quic: bool = False,
         config: ClientConfig | None = None,

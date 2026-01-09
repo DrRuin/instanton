@@ -48,7 +48,7 @@ from instanton.core.config import ClientConfig
 logger = structlog.get_logger()
 
 # Default server - can be overridden via environment or config
-DEFAULT_SERVER = os.environ.get("INSTANTON_SERVER", "instanton.dev:443")
+DEFAULT_SERVER = os.environ.get("INSTANTON_SERVER", "instanton.tech:443")
 DEFAULT_AUTH_TOKEN = os.environ.get("INSTANTON_AUTH_TOKEN")
 
 
@@ -72,7 +72,7 @@ class Listener:
     """
 
     url: str
-    """The public URL for this tunnel (e.g., https://myapp.instanton.dev)"""
+    """The public URL for this tunnel (e.g., https://myapp.instanton.tech)"""
 
     subdomain: str
     """The subdomain assigned to this tunnel"""
@@ -288,7 +288,7 @@ async def forward(
 
     Args:
         port: Local port to forward (defaults to finding available port)
-        subdomain: Request a specific subdomain (e.g., "myapp" for myapp.instanton.dev)
+        subdomain: Request a specific subdomain (e.g., "myapp" for myapp.instanton.tech)
         server: Override the default Instanton server
         auth_token: Authentication token for the server
         auto_reconnect: Enable automatic reconnection (default: True)

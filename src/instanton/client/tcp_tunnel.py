@@ -215,7 +215,7 @@ class TcpTunnelClient:
     def __init__(
         self,
         config: TcpTunnelConfig | None = None,
-        server_addr: str = "instanton.dev",
+        server_addr: str = "instanton.tech",
         use_quic: bool = False,
     ) -> None:
         """Initialize TCP tunnel client.
@@ -577,7 +577,7 @@ class TcpTunnelClient:
 
 async def start_tcp_tunnel(
     local_port: int,
-    server_addr: str = "instanton.dev",
+    server_addr: str = "instanton.tech",
     remote_port: int | None = None,
     use_quic: bool = False,
 ) -> TcpTunnelClient:

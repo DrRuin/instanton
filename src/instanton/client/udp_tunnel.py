@@ -258,7 +258,7 @@ class UdpTunnelClient:
     def __init__(
         self,
         config: UdpTunnelConfig | None = None,
-        server_addr: str = "instanton.dev",
+        server_addr: str = "instanton.tech",
         use_quic: bool = True,  # QUIC preferred for UDP
     ) -> None:
         """Initialize UDP tunnel client.
@@ -570,7 +570,7 @@ class UdpTunnelClient:
 
 async def start_udp_tunnel(
     local_port: int,
-    server_addr: str = "instanton.dev",
+    server_addr: str = "instanton.tech",
     remote_port: int | None = None,
     use_quic: bool = True,
 ) -> UdpTunnelClient:

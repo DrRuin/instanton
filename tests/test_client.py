@@ -92,7 +92,7 @@ class TestTunnelClientInit:
         """Test default initialization."""
         client = TunnelClient(local_port=8080)
         assert client.local_port == 8080
-        assert client.server_addr == "instanton.dev"
+        assert client.server_addr == "instanton.tech"
         assert client.subdomain is None
         assert not client.use_quic
         assert client.state == ConnectionState.DISCONNECTED
