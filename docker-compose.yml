@@ -2,8 +2,8 @@
 # Instanton - Docker Compose
 # Quick start for development and testing
 # ============================================================================
-
-version: '3.8'
+# NOTE: The 'version' field is obsolete and removed for Docker Compose V2
+# Use 'docker compose' (not 'docker-compose') on modern systems
 
 services:
   # -------------------------------------------------------------------------

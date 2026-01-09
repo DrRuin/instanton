@@ -36,15 +36,31 @@ fi
 VPS_IP=$(curl -s ifconfig.me || curl -s icanhazip.com || curl -s api.ipify.org)
 echo -e "${GREEN}✓ Detected VPS IP: ${VPS_IP}${NC}"
 
-# Step 1: Install dependencies
+# Step 1: Install dependencies (Docker with Compose V2 plugin)
 echo -e "\n${YELLOW}[1/7] Installing dependencies...${NC}"
 apt update
-apt install -y docker.io docker-compose git certbot curl ufw
+apt install -y ca-certificates curl gnupg git certbot ufw
+
+# Install Docker from official repository (includes Compose V2)
+if ! command -v docker &> /dev/null; then
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+    chmod a+r /etc/apt/keyrings/docker.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+    apt update
+    apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker compose-plugin
+fi
+
+# Verify Docker Compose V2 is available
+if ! docker compose version &> /dev/null; then
+    echo -e "${YELLOW}Installing Docker Compose plugin...${NC}"
+    apt install -y docker compose-plugin
+fi
 
 systemctl enable docker
 systemctl start docker
 
-echo -e "${GREEN}✓ Dependencies installed${NC}"
+echo -e "${GREEN}✓ Dependencies installed (Docker with Compose V2)${NC}"
 
 # Step 2: Create directory structure
 echo -e "\n${YELLOW}[2/7] Setting up directories...${NC}"
@@ -128,7 +144,7 @@ echo "(Save this token for authenticated tunnels)"
 # Step 7: Start Instanton
 echo -e "\n${YELLOW}[7/7] Starting Instanton server...${NC}"
 cd ${INSTANTON_DIR}
-docker-compose up -d instanton-server
+docker compose up -d instanton-server
 
 # Wait for startup
 sleep 5
@@ -152,8 +168,8 @@ Requires=docker.service
 [Service]
 Type=simple
 WorkingDirectory=${INSTANTON_DIR}
-ExecStart=/usr/bin/docker-compose up
-ExecStop=/usr/bin/docker-compose down
+ExecStart=/usr/bin/docker compose up
+ExecStop=/usr/bin/docker compose down
 Restart=always
 RestartSec=10
 
@@ -166,7 +182,7 @@ systemctl enable instanton
 
 # Setup certificate renewal cron
 cat > /etc/cron.d/instanton-cert-renewal << EOF
-0 0,12 * * * root certbot renew --quiet && cp /etc/letsencrypt/live/${DOMAIN}/fullchain.pem ${INSTANTON_DIR}/certs/cert.pem && cp /etc/letsencrypt/live/${DOMAIN}/privkey.pem ${INSTANTON_DIR}/certs/key.pem && docker-compose -f ${INSTANTON_DIR}/docker-compose.yml restart instanton-server
+0 0,12 * * * root certbot renew --quiet && cp /etc/letsencrypt/live/${DOMAIN}/fullchain.pem ${INSTANTON_DIR}/certs/cert.pem && cp /etc/letsencrypt/live/${DOMAIN}/privkey.pem ${INSTANTON_DIR}/certs/key.pem && docker compose -f ${INSTANTON_DIR}/docker compose.yml restart instanton-server
 EOF
 
 echo ""
@@ -185,7 +201,7 @@ echo -e "They will get URLs like: ${BLUE}https://abc123.${DOMAIN}${NC}"
 echo ""
 echo -e "Management Commands:"
 echo -e "  View logs:    ${YELLOW}docker logs -f instanton-server${NC}"
-echo -e "  Restart:      ${YELLOW}docker-compose restart instanton-server${NC}"
+echo -e "  Restart:      ${YELLOW}docker compose restart instanton-server${NC}"
 echo -e "  Status:       ${YELLOW}docker ps${NC}"
 echo ""
 echo -e "${GREEN}✓ All done! Your Instanton relay server is live.${NC}"

@@ -19,7 +19,7 @@ docker run --rm -it --network host instanton/instanton --port 8000 --subdomain m
 ```bash
 docker run -d \
   -p 443:443 \
-  -p 8443:8443 \
+  -p 4443:4443 \
   -p 9090:9090 \
   -v ./certs:/certs:ro \
   instanton/instanton-server \
@@ -28,17 +28,20 @@ docker run -d \
 
 ## Docker Compose
 
+> **IMPORTANT**: Use `docker compose` (V2, with space) instead of `docker-compose` (V1, with hyphen).
+> The legacy docker-compose V1 has compatibility issues with newer Docker versions.
+
 For a complete setup with monitoring, use the docker-compose.yml in the project root:
 
 ```bash
 # Start relay server only
-docker-compose up -d instanton-server
+docker compose up -d instanton-server
 
 # Start with monitoring (Prometheus + Grafana)
-docker-compose --profile monitoring up -d
+docker compose --profile monitoring up -d
 
 # Start with example app
-docker-compose --profile example up -d
+docker compose --profile example up -d
 ```
 
 ## Configuration
@@ -64,7 +67,7 @@ docker-compose --profile example up -d
 | Port | Description |
 |------|-------------|
 | 443 | HTTPS (public traffic) |
-| 8443 | Control plane (tunnel clients connect here) |
+| 4443 | Control plane (tunnel clients connect here) |
 | 9090 | Prometheus metrics |
 
 ## Building Images
