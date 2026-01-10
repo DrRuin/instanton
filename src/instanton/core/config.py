@@ -15,51 +15,7 @@ class AuthBackend(str, Enum):
 
 
 class AuthConfig(BaseModel):
-    """Authentication configuration.
-
-    Attributes:
-        enabled: Whether authentication is enabled.
-        backend: Storage backend type.
-        require_auth: Whether to require authentication for all requests.
-        allow_anonymous: Allow anonymous access (when require_auth is False).
-
-        # API Key settings
-        api_key_enabled: Enable API key authentication.
-        api_key_prefix: Prefix for generated API keys.
-        api_key_header: HTTP header name for API keys.
-
-        # JWT settings
-        jwt_enabled: Enable JWT authentication.
-        jwt_algorithm: JWT signing algorithm (HS256 or RS256).
-        jwt_secret_key: Secret key for HS256.
-        jwt_private_key_path: Path to private key for RS256.
-        jwt_public_key_path: Path to public key for RS256.
-        jwt_issuer: JWT issuer claim.
-        jwt_audience: JWT audience claim.
-        jwt_access_token_ttl: Access token lifetime in seconds.
-        jwt_refresh_token_ttl: Refresh token lifetime in seconds.
-        jwt_leeway: Time leeway for token validation in seconds.
-
-        # Basic auth settings
-        basic_auth_enabled: Enable HTTP Basic authentication.
-        basic_auth_realm: Realm for Basic auth.
-
-        # OAuth settings
-        oauth_enabled: Enable OAuth2/OIDC authentication.
-        oauth_providers: List of configured OAuth providers.
-
-        # mTLS settings
-        mtls_enabled: Enable mutual TLS authentication.
-        mtls_ca_cert_path: Path to CA certificate for client verification.
-        mtls_required_subjects: List of allowed subject CNs.
-
-        # Storage settings
-        sqlite_path: Path to SQLite database (for sqlite backend).
-        redis_url: Redis connection URL (for redis backend).
-
-        # Excluded paths
-        excluded_paths: Paths that don't require authentication.
-    """
+    """Authentication configuration supporting API keys, JWT, OAuth, Basic auth, and mTLS."""
 
     enabled: bool = True
     backend: AuthBackend = AuthBackend.MEMORY
@@ -105,17 +61,19 @@ class AuthConfig(BaseModel):
 
 
 class ClientConfig(BaseModel):
-    """Client configuration."""
+    """Client configuration optimized for global users with varying latency."""
 
     server_addr: str = "instanton.tech:4443"
     local_port: int = 8080
     subdomain: str | None = None
     use_quic: bool = False  # WebSocket is default (server compatibility)
-    connect_timeout: float = 10.0
+    # Increased from 10s to 30s for users in high-latency regions
+    connect_timeout: float = 30.0
     idle_timeout: float = 300.0
     keepalive_interval: float = 30.0
     auto_reconnect: bool = True
-    max_reconnect_attempts: int = 10
+    # Increased from 10 to 15 for better resilience
+    max_reconnect_attempts: int = 15
 
 
 class RateLimitConfig(BaseModel):

@@ -178,17 +178,40 @@ class InstantonConfig:
 config = InstantonConfig()
 
 
-def _suggest_subdomain() -> str | None:
+def _generate_unique_suffix() -> str:
+    """Generate a short unique suffix for subdomains.
+
+    Uses 4 random hex characters (16 bits of entropy) which provides
+    65,536 unique values - sufficient to avoid conflicts in most cases.
+    """
+    import secrets
+
+    return secrets.token_hex(2)  # 4 hex characters
+
+
+def _suggest_subdomain(with_unique_suffix: bool = True) -> str | None:
     """Suggest a subdomain based on the current project context.
 
+    IMPORTANT: By default, always appends a unique random suffix to prevent
+    conflicts when multiple users run instanton from the same directory or
+    projects with the same name.
+
+    Args:
+        with_unique_suffix: If True (default), appends a random suffix like
+            "myproject-a1b2" to ensure uniqueness. Set to False only when
+            you want the exact project name (may cause SUBDOMAIN_TAKEN errors).
+
     Looks at:
-    1. Current directory name
-    2. pyproject.toml project name
-    3. setup.py name
-    4. package.json name
-    5. Git remote name
+    1. pyproject.toml project name
+    2. package.json name
+    3. Git remote name
+    4. Current directory name
+
+    Returns:
+        A suggested subdomain like "myproject-a1b2" or None if no project detected.
     """
     cwd = Path.cwd()
+    base_name: str | None = None
 
     # Try pyproject.toml
     pyproject = cwd / "pyproject.toml"
@@ -200,46 +223,62 @@ def _suggest_subdomain() -> str | None:
                 data = tomllib.load(f)
                 name = data.get("project", {}).get("name")
                 if name:
-                    return _sanitize_subdomain(name)
+                    base_name = _sanitize_subdomain(name)
         except Exception:
             pass
 
     # Try package.json
-    package_json = cwd / "package.json"
-    if package_json.exists():
-        try:
-            import json
+    if not base_name:
+        package_json = cwd / "package.json"
+        if package_json.exists():
+            try:
+                import json
 
-            with open(package_json) as f:
-                data = json.load(f)
-                name = data.get("name")
-                if name:
-                    # Remove scope from npm packages
-                    if name.startswith("@"):
-                        name = name.split("/")[-1]
-                    return _sanitize_subdomain(name)
-        except Exception:
-            pass
+                with open(package_json) as f:
+                    data = json.load(f)
+                    name = data.get("name")
+                    if name:
+                        # Remove scope from npm packages
+                        if name.startswith("@"):
+                            name = name.split("/")[-1]
+                        base_name = _sanitize_subdomain(name)
+            except Exception:
+                pass
 
     # Try git remote
-    git_config = cwd / ".git" / "config"
-    if git_config.exists():
-        try:
-            with open(git_config) as f:
-                content = f.read()
-                # Extract repo name from remote URL
-                match = re.search(r"/([^/]+?)(?:\.git)?$", content, re.MULTILINE)
-                if match:
-                    return _sanitize_subdomain(match.group(1))
-        except Exception:
-            pass
+    if not base_name:
+        git_config = cwd / ".git" / "config"
+        if git_config.exists():
+            try:
+                with open(git_config) as f:
+                    content = f.read()
+                    # Extract repo name from remote URL
+                    match = re.search(r"/([^/]+?)(?:\.git)?$", content, re.MULTILINE)
+                    if match:
+                        base_name = _sanitize_subdomain(match.group(1))
+            except Exception:
+                pass
 
     # Fall back to directory name
-    dir_name = cwd.name
-    if dir_name and dir_name not in (".", "..", "src", "app", "project"):
-        return _sanitize_subdomain(dir_name)
+    if not base_name:
+        dir_name = cwd.name
+        if dir_name and dir_name not in (".", "..", "src", "app", "project"):
+            base_name = _sanitize_subdomain(dir_name)
 
-    return None
+    if not base_name:
+        return None
+
+    # Append unique suffix to prevent conflicts when multiple users
+    # run from the same directory or projects with the same name
+    if with_unique_suffix:
+        suffix = _generate_unique_suffix()
+        # Ensure total length doesn't exceed subdomain limit (63 chars)
+        max_base_len = 63 - len(suffix) - 1  # -1 for the hyphen
+        if len(base_name) > max_base_len:
+            base_name = base_name[:max_base_len].rstrip("-")
+        return f"{base_name}-{suffix}"
+
+    return base_name
 
 
 def _sanitize_subdomain(name: str) -> str:
@@ -250,6 +289,8 @@ def _sanitize_subdomain(name: str) -> str:
     name = re.sub(r"[_\s]+", "-", name)
     # Remove invalid characters
     name = re.sub(r"[^a-z0-9-]", "", name)
+    # Normalize multiple consecutive hyphens to single hyphen
+    name = re.sub(r"-+", "-", name)
     # Remove leading/trailing hyphens
     name = name.strip("-")
     # Limit length

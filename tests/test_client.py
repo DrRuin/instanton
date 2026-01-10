@@ -311,6 +311,8 @@ class TestConnect:
         self, client: TunnelClient, mock_transport: MockTransport
     ) -> None:
         """Test connection with error response."""
+        from instanton.core.exceptions import SubdomainTakenError
+
         # Queue the responses
         negotiate_response = NegotiateResponse(success=True)
         error_response = ConnectResponse(
@@ -323,7 +325,7 @@ class TestConnect:
 
         with patch.object(
             client, "_create_transport", return_value=mock_transport
-        ), pytest.raises(ConnectionError, match="Subdomain already taken"):
+        ), pytest.raises(SubdomainTakenError):
             await client.connect()
 
         assert client.state == ConnectionState.DISCONNECTED
@@ -333,13 +335,15 @@ class TestConnect:
         self, client: TunnelClient, mock_transport: MockTransport
     ) -> None:
         """Test connection with no response."""
+        from instanton.core.exceptions import ServerUnavailableError
+
         negotiate_response = NegotiateResponse(success=True)
         mock_transport.queue_message(encode_message(negotiate_response))
         mock_transport.queue_disconnect()
 
         with patch.object(
             client, "_create_transport", return_value=mock_transport
-        ), pytest.raises(ConnectionError, match="No response"):
+        ), pytest.raises(ServerUnavailableError):
             await client.connect()
 
 
@@ -609,13 +613,13 @@ class TestReconnectConfig:
     """Test ReconnectConfig dataclass."""
 
     def test_default_values(self) -> None:
-        """Test default values."""
+        """Test default values optimized for global users."""
         config = ReconnectConfig()
         assert config.enabled
-        assert config.max_attempts == 10
+        assert config.max_attempts == 15  # Increased for resilience
         assert config.base_delay == 1.0
         assert config.max_delay == 60.0
-        assert config.jitter == 0.1
+        assert config.jitter == 0.2  # Increased to reduce reconnection storms
 
     def test_custom_values(self) -> None:
         """Test custom values."""

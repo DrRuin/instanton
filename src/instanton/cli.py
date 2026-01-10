@@ -242,6 +242,27 @@ async def start_tunnel(
     except KeyboardInterrupt:
         console.print("\nShutting down...", style="yellow")
         await client.close()
+    except Exception as e:
+        # Import here to avoid circular imports
+        from instanton.core.exceptions import InstantonError, format_error_for_user
+
+        if isinstance(e, InstantonError):
+            console.print(
+                Panel(
+                    f"[red]{e.message}[/red]",
+                    title=f"Error: {e.code}",
+                    border_style="red",
+                )
+            )
+        else:
+            console.print(
+                Panel(
+                    f"[red]{format_error_for_user(e)}[/red]",
+                    title="Connection Error",
+                    border_style="red",
+                )
+            )
+        sys.exit(1)
 
 
 @main.command()

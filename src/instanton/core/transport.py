@@ -1,9 +1,18 @@
-"""Transport layer abstraction with WebSocket and QUIC support, reconnection, and heartbeat."""
+"""Transport layer abstraction with WebSocket and QUIC support, reconnection, and heartbeat.
+
+Key features for instant, reliable connections:
+- DNS caching and pre-resolution to avoid lookup delays
+- Immediate first connection attempt (no delay on first try)
+- Automatic reconnection with exponential backoff
+- Heartbeat monitoring for connection health
+- Connection state callbacks for UI feedback
+"""
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import socket
 import ssl
 import time
 from abc import ABC, abstractmethod
@@ -18,6 +27,57 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
 
 logger = structlog.get_logger()
+
+# DNS cache for faster reconnections
+_dns_cache: dict[str, tuple[str, float]] = {}
+_DNS_CACHE_TTL = 300.0  # 5 minutes
+
+
+async def resolve_host(host: str) -> str:
+    """Resolve hostname to IP address with caching.
+
+    This speeds up reconnections by avoiding repeated DNS lookups.
+    The cache has a 5-minute TTL.
+
+    Args:
+        host: Hostname to resolve
+
+    Returns:
+        IP address or original hostname if resolution fails
+    """
+    # Return as-is if already an IP address
+    try:
+        socket.inet_aton(host)
+        return host
+    except OSError:
+        pass
+
+    # Check cache
+    now = time.monotonic()
+    if host in _dns_cache:
+        ip, cached_time = _dns_cache[host]
+        if now - cached_time < _DNS_CACHE_TTL:
+            logger.debug("DNS cache hit", host=host, ip=ip)
+            return ip
+
+    # Resolve in thread pool to not block
+    try:
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: socket.gethostbyname(host),
+        )
+        _dns_cache[host] = (result, now)
+        logger.debug("DNS resolved", host=host, ip=result)
+        return result
+    except socket.gaierror as e:
+        logger.warning("DNS resolution failed, using hostname", host=host, error=str(e))
+        return host
+
+
+def clear_dns_cache() -> None:
+    """Clear the DNS cache."""
+    _dns_cache.clear()
 
 
 class ConnectionState(Enum):
@@ -41,6 +101,27 @@ class TransportStats:
     reconnect_count: int = 0
     last_ping_latency: float = 0.0
     connection_start_time: float = 0.0
+
+    @property
+    def uptime_seconds(self) -> float:
+        """Get connection uptime in seconds."""
+        if self.connection_start_time == 0:
+            return 0.0
+        return time.time() - self.connection_start_time
+
+    @property
+    def is_healthy(self) -> bool:
+        """Check if connection appears healthy.
+
+        Connection is considered healthy if:
+        - It has been active for at least 5 seconds
+        - Last ping latency is under 5 seconds
+        """
+        if self.connection_start_time == 0:
+            return False
+        if self.uptime_seconds < 5.0:
+            return True  # Too early to tell
+        return self.last_ping_latency <= 5.0
 
 
 class TransportError(Exception):
@@ -101,12 +182,12 @@ class WebSocketTransport(Transport):
         self,
         *,
         auto_reconnect: bool = True,
-        max_reconnect_attempts: int = 10,
+        max_reconnect_attempts: int = 15,  # Increased for resilience
         reconnect_delay: float = 1.0,
         max_reconnect_delay: float = 60.0,
         ping_interval: float = 30.0,
-        ping_timeout: float = 10.0,
-        connect_timeout: float = 10.0,
+        ping_timeout: float = 15.0,  # Increased for high-latency networks
+        connect_timeout: float = 30.0,  # Increased for global users
     ):
         """Initialize WebSocket transport.
 
@@ -118,6 +199,10 @@ class WebSocketTransport(Transport):
             ping_interval: Interval between heartbeat pings in seconds.
             ping_timeout: Timeout for ping responses in seconds.
             connect_timeout: Timeout for initial connection in seconds.
+
+        Note:
+            Default timeouts are increased for global users connecting from
+            different countries with varying network latency.
         """
         self._ws: Any = None
         self._state = ConnectionState.DISCONNECTED
@@ -178,10 +263,20 @@ class WebSocketTransport(Transport):
         Args:
             addr: Server address (host:port or full URL).
             path: Optional path to append to the WebSocket URL.
+
+        Connection is optimized for speed with:
+        - DNS pre-resolution and caching
+        - Immediate connection attempt (no initial delay)
+        - Configurable timeout for global users
         """
         self._addr = addr
         self._shutdown = False
         self._state = ConnectionState.CONNECTING
+
+        # Pre-resolve DNS to speed up connection
+        host = addr.split(":")[0] if ":" in addr else addr
+        if not addr.startswith("ws://") and not addr.startswith("wss://"):
+            await resolve_host(host)
 
         url = self._build_url(addr)
         logger.info("Connecting via WebSocket", url=url)
@@ -293,7 +388,12 @@ class WebSocketTransport(Transport):
                 await self._reconnect()
 
     async def _reconnect(self) -> None:
-        """Attempt to reconnect with exponential backoff."""
+        """Attempt to reconnect with exponential backoff.
+
+        First reconnection attempt is immediate (no delay) for best
+        user experience. Subsequent attempts use exponential backoff
+        with jitter to prevent thundering herd.
+        """
         if self._shutdown:
             return
 
@@ -314,19 +414,30 @@ class WebSocketTransport(Transport):
                 self._state = ConnectionState.CLOSED
                 return
 
-            # Calculate delay with exponential backoff
-            delay = min(
-                self._reconnect_delay * (2 ** (self._current_reconnect_attempt - 1)),
-                self._max_reconnect_delay,
-            )
+            # First attempt is immediate for best UX
+            if self._current_reconnect_attempt == 1:
+                delay = 0.0
+            else:
+                # Calculate delay with exponential backoff
+                delay = min(
+                    self._reconnect_delay * (2 ** (self._current_reconnect_attempt - 2)),
+                    self._max_reconnect_delay,
+                )
+                # Add small jitter (10-20%) to prevent thundering herd
+                import random
+
+                jitter = delay * 0.1 * (1 + random.random())
+                delay += jitter
 
             logger.info(
                 "Reconnecting",
                 attempt=self._current_reconnect_attempt,
-                delay=delay,
+                max_attempts=self._max_reconnect_attempts,
+                delay_ms=int(delay * 1000),
             )
 
-            await asyncio.sleep(delay)
+            if delay > 0:
+                await asyncio.sleep(delay)
 
             if self._shutdown:
                 return
@@ -476,7 +587,11 @@ class WebSocketTransport(Transport):
 
 @dataclass
 class QuicTransportConfig:
-    """Configuration for QUIC transport connections."""
+    """Configuration for QUIC transport connections.
+
+    Optimized defaults for global users connecting from different countries
+    with varying network conditions and latency.
+    """
 
     host: str = "localhost"
     port: int = 4433
@@ -486,10 +601,10 @@ class QuicTransportConfig:
     key_path: Path | None = None
     ca_path: Path | None = None
     alpn_protocols: list[str] = field(default_factory=lambda: ["instanton"])
-    idle_timeout: float = 30.0
-    connection_timeout: float = 10.0
+    idle_timeout: float = 60.0  # Increased for global users
+    connection_timeout: float = 30.0  # Increased for high-latency networks
     auto_reconnect: bool = True
-    max_reconnect_attempts: int = 10
+    max_reconnect_attempts: int = 15  # Increased for resilience
     reconnect_delay: float = 1.0
     max_reconnect_delay: float = 60.0
 

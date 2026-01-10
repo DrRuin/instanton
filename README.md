@@ -24,11 +24,10 @@
 <br/>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/217%2F218-features%20implemented-success?style=flat-square" alt="Features"/>
-  <img src="https://img.shields.io/badge/99.5%25-complete-success?style=flat-square" alt="Complete"/>
-  <img src="https://img.shields.io/badge/1000%2B-tests%20passing-success?style=flat-square" alt="Tests"/>
+  <img src="https://img.shields.io/badge/1258%2B-tests%20passing-success?style=flat-square" alt="Tests"/>
   <img src="https://img.shields.io/badge/latency-5ms-blue?style=flat-square" alt="Latency"/>
   <img src="https://img.shields.io/badge/throughput-1.2%20Gbps-blue?style=flat-square" alt="Throughput"/>
+  <img src="https://img.shields.io/badge/scale-10000%2B%20concurrent-green?style=flat-square" alt="Scale"/>
 </p>
 
 <br/>
@@ -38,16 +37,15 @@ pip install instanton && instanton --port 8000
 ```
 
 <p align="center">
-  <strong>That's it. You now have a public HTTPS URL. No signup. No config files. No BS.</strong>
+  <strong>That's it. You now have a public HTTPS URL. No signup. No config files.</strong>
 </p>
 
 <br/>
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> -
-  <a href="#why-instanton">Why Instanton</a> -
   <a href="#features">Features</a> -
-  <a href="#benchmarks">Benchmarks</a> -
+  <a href="#python-sdk">Python SDK</a> -
   <a href="#deployment">Deployment</a> -
   <a href="#configuration">Configuration</a>
 </p>
@@ -75,83 +73,15 @@ instanton --port 8000
 ```
 
 ```
-  ⚡ Instanton v1.0.0
+  Instanton v1.0.0
 
-  ✓ Tunnel established
-  ✓ HTTPS certificate provisioned
+  Tunnel established!
 
   Public URL:  https://abc123.instanton.tech
-  Forwarding:  https://abc123.instanton.tech → http://localhost:8000
-
-  Inspector:   http://localhost:4040
+  Forwarding:  https://abc123.instanton.tech -> http://localhost:8000
 
   Press Ctrl+C to stop
 ```
-
-<br/>
-
----
-
-<br/>
-
-## Why Instanton?
-
-<br/>
-
-<table>
-<tr>
-<td width="50%">
-
-### What ngrok charges $240/year for...
-
-- Custom subdomains
-- TLS certificates
-- Traffic inspection
-- Rate limiting
-- Webhooks
-- Multiple tunnels
-
-</td>
-<td width="50%">
-
-### Instanton gives you free. Forever.
-
-Plus:
-- **Zero Trust security**
-- **9 load balancing algorithms**
-- **HTTP/3 with QUIC**
-- **Native Python SDK**
-- **Self-hosting**
-- **No vendor lock-in**
-
-</td>
-</tr>
-</table>
-
-<br/>
-
-### Feature Comparison
-
-<div align="center">
-
-|  | **Instanton** | ngrok | Cloudflare Tunnel | tunnelto |
-|:--|:--:|:--:|:--:|:--:|
-| Open Source | ✅ Full | ❌ | ❌ | ✅ |
-| Self-Hostable | ✅ | ❌ | ❌ | ✅ |
-| HTTP/3 (QUIC) | ✅ | ❌ | ✅ | ❌ |
-| Zero Trust | ✅ Free | ❌ | $7/user/mo | ❌ |
-| Load Balancing | ✅ 9 algos | ⚠️ Limited¹ | ✅ Via LB² | ❌ |
-| DDoS Protection | ✅ | Paid | ✅ | ❌ |
-| Traffic Inspector | ✅ | Paid | ❌ | ⚠️ Basic |
-| Native Python SDK | ✅ | ❌ | ❌ | ❌ |
-| TCP/UDP Tunnels | ✅ | ✅ | ✅ | ❌ |
-| **Price** | **$0** | $10-65+/mo | $0-7/user | $0-4/mo³ |
-
-</div>
-
-<sub>¹ ngrok: Endpoint Pooling with equal distribution only (custom algorithms coming soon)<br/>
-² Cloudflare Tunnel: Via Cloudflare Load Balancing integration<br/>
-³ tunnelto: Free basic usage, $4/mo for 20 custom subdomains</sub>
 
 <br/>
 
@@ -240,27 +170,25 @@ instanton --port 8000 --no-request-timeout
 <tr>
 <td width="33%" valign="top">
 
-### 🚀 Performance
+### Performance
 
-- **5ms latency** (3x faster than ngrok)
+- **5ms latency overhead**
 - **1.2 Gbps throughput**
 - **6,500 connections/sec**
 - **250ms cold start**
-- HTTP/3 with QUIC
+- HTTP/3 with QUIC support
 - 0-RTT connection resumption
-- Connection migration
 - LZ4/Zstd compression
 - Zero-copy buffer pooling
 
 </td>
 <td width="33%" valign="top">
 
-### 🔐 Security
+### Security
 
 - **Zero Trust architecture**
-- 5-tier trust levels with risk scoring
 - TLS 1.3 with certificate pinning
-- mTLS (mutual TLS)
+- mTLS (mutual TLS) support
 - JWT, OAuth2, OIDC, API Keys
 - DDoS protection & rate limiting
 - Bot detection & IP reputation
@@ -270,7 +198,7 @@ instanton --port 8000 --no-request-timeout
 </td>
 <td width="33%" valign="top">
 
-### 📊 Observability
+### Observability
 
 - **Real-time traffic inspector**
 - Request/response replay
@@ -278,7 +206,7 @@ instanton --port 8000 --no-request-timeout
 - OpenTelemetry tracing
 - Structured logging
 - Health checks & probes
-- Circuit breaker
+- Circuit breaker patterns
 - P99 latency tracking
 
 </td>
@@ -286,7 +214,7 @@ instanton --port 8000 --no-request-timeout
 <tr>
 <td width="33%" valign="top">
 
-### ⚖️ Load Balancing
+### Load Balancing
 
 **9 algorithms:**
 - Round-robin
@@ -301,7 +229,7 @@ instanton --port 8000 --no-request-timeout
 </td>
 <td width="33%" valign="top">
 
-### 🔌 Protocols
+### Protocols
 
 - HTTP/1.1, HTTP/2, HTTP/3
 - WebSocket (full duplex)
@@ -315,7 +243,7 @@ instanton --port 8000 --no-request-timeout
 </td>
 <td width="33%" valign="top">
 
-### 🛠️ Developer Experience
+### Developer Experience
 
 - **One command to start**
 - Native Python SDK
@@ -323,8 +251,8 @@ instanton --port 8000 --no-request-timeout
 - Rich CLI with colors
 - Auto subdomain from project
 - YAML config support
-- Hot reload
 - Detailed error messages
+- Comprehensive documentation
 
 </td>
 </tr>
@@ -336,43 +264,15 @@ instanton --port 8000 --no-request-timeout
 
 <br/>
 
-## Benchmarks
+## Scalability
 
-<div align="center">
+Instanton is designed to handle thousands of concurrent users:
 
-| Metric | Instanton | ngrok | Cloudflare | Winner |
-|:--|:--:|:--:|:--:|:--:|
-| **Latency** | 5ms | 15ms | 10ms | 🏆 Instanton |
-| **Throughput** | 1.2 Gbps | 500 Mbps | 1 Gbps | 🏆 Instanton |
-| **Connections/sec** | 6,500 | 1,000 | 3,000 | 🏆 Instanton |
-| **Memory (idle)** | 35 MB | 50 MB | 30 MB | Cloudflare |
-| **Cold Start** | 250ms | 2s | 3s | 🏆 Instanton |
-
-</div>
-
-<br/>
-
-**How we achieve this:**
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     INSTANTON ARCHITECTURE                       │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│   Client                    Relay Server              Origin    │
-│     │                           │                        │      │
-│     │◄──── QUIC/HTTP3 ─────────►│◄────── HTTP/WS ───────►│      │
-│     │      (0-RTT, multiplexed)  │       (pooled)         │      │
-│     │                           │                        │      │
-│     │   ┌─────────────────────┐ │                        │      │
-│     │   │ • LZ4 compression   │ │                        │      │
-│     │   │ • Connection pool   │ │                        │      │
-│     │   │ • Zero-copy buffers │ │                        │      │
-│     │   │ • uvloop (Linux)    │ │                        │      │
-│     │   └─────────────────────┘ │                        │      │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+- **Unique subdomain generation**: 12-character hex subdomains with 48 bits of entropy
+  - Probability of collision for 10,000 tunnels: < 0.00002%
+- **Efficient port allocation**: TCP (10000-19999), UDP (20000-29999)
+- **Fast tunnel lookups**: O(1) dictionary operations
+- **Memory efficient**: Minimal per-connection overhead
 
 <br/>
 
@@ -384,24 +284,31 @@ instanton --port 8000 --no-request-timeout
 
 <br/>
 
+```mermaid
+flowchart LR
+    subgraph ZeroTrust["ZERO TRUST ARCHITECTURE"]
+        direction LR
+        A["🔐 Identity<br/>Verify"] --> B["💻 Device<br/>Posture"]
+        B --> C["⚠️ Risk<br/>Score"]
+        C --> D["✅ Access<br/>Decision"]
+    end
 ```
-                           ZERO TRUST ARCHITECTURE
-  ┌──────────────────────────────────────────────────────────────────┐
-  │                                                                  │
-  │   ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐  │
-  │   │ Identity │───►│  Device  │───►│   Risk   │───►│  Access  │  │
-  │   │  Verify  │    │ Posture  │    │  Score   │    │ Decision │  │
-  │   └──────────┘    └──────────┘    └──────────┘    └──────────┘  │
-  │                                                                  │
-  │   Trust Levels:                                                  │
-  │   ═══════════════════════════════════════════════════════════   │
-  │   UNTRUSTED ──► LOW ──► MEDIUM ──► HIGH ──► VERIFIED            │
-  │       │          │         │          │         │               │
-  │       ▼          ▼         ▼          ▼         ▼               │
-  │     Block    Limited   Standard   Extended    Full              │
-  │              Access    Access     Access     Access             │
-  │                                                                  │
-  └──────────────────────────────────────────────────────────────────┘
+
+```mermaid
+flowchart TB
+    subgraph TrustLevels["Trust Levels & Access Rights"]
+        direction LR
+        U["UNTRUSTED"] --> L["LOW"]
+        L --> M["MEDIUM"]
+        M --> H["HIGH"]
+        H --> V["VERIFIED"]
+    end
+
+    U -.-> UB["🚫 Block"]
+    L -.-> LA["Limited Access"]
+    M -.-> SA["Standard Access"]
+    H -.-> EA["Extended Access"]
+    V -.-> FA["✅ Full Access"]
 ```
 
 <br/>
@@ -410,7 +317,7 @@ instanton --port 8000 --no-request-timeout
 <tr>
 <td width="33%" align="center">
 
-**🔒 TLS 1.3**
+**TLS 1.3**
 
 ECDHE + AES-GCM
 ChaCha20-Poly1305
@@ -420,7 +327,7 @@ Perfect forward secrecy
 </td>
 <td width="33%" align="center">
 
-**🛡️ DDoS Protection**
+**DDoS Protection**
 
 Rate limiting (3 algorithms)
 Bot detection
@@ -431,7 +338,7 @@ Slowloris mitigation
 </td>
 <td width="33%" align="center">
 
-**🔑 Authentication**
+**Authentication**
 
 JWT (HS256, RS256)
 OAuth2 / OIDC
@@ -449,6 +356,47 @@ Basic auth
 
 <br/>
 
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph Client["🖥️ Client"]
+        direction TB
+        C1["Local Service<br/>localhost:8000"]
+    end
+
+    subgraph Features["⚡ Optimizations"]
+        direction TB
+        F1["LZ4 Compression"]
+        F2["Connection Pool"]
+        F3["Zero-copy Buffers"]
+        F4["uvloop (Linux)"]
+    end
+
+    subgraph Relay["🌐 Relay Server"]
+        direction TB
+        R1["TLS Termination"]
+        R2["Subdomain Routing"]
+        R3["Load Balancing"]
+    end
+
+    subgraph Internet["🌍 Internet"]
+        direction TB
+        I1["Public Users<br/>abc123.instanton.tech"]
+    end
+
+    C1 <-->|"QUIC/HTTP3<br/>(0-RTT, multiplexed)"| Relay
+    Relay <-->|"HTTPS<br/>(pooled)"| Internet
+
+    Features -.-> C1
+```
+
+<br/>
+
+---
+
+<br/>
+
 ## Deployment
 
 ### Docker
@@ -458,9 +406,9 @@ Basic auth
 docker run -d \
   --name instanton-server \
   -p 443:443 \
-  -p 80:80 \
+  -p 4443:4443 \
   -e INSTANTON_DOMAIN=tunnel.example.com \
-  -v instanton-certs:/app/certs \
+  -v ./certs:/app/certs:ro \
   ghcr.io/drruin/instanton-server:latest
 ```
 
@@ -473,15 +421,20 @@ services:
     image: ghcr.io/drruin/instanton-server:latest
     ports:
       - "443:443"
-      - "80:80"
+      - "4443:4443"
     environment:
       - INSTANTON_DOMAIN=tunnel.example.com
     volumes:
-      - certs:/app/certs
+      - ./certs:/app/certs:ro
+    command:
+      - instanton-server
+      - --domain
+      - tunnel.example.com
+      - --cert
+      - /app/certs/cert.pem
+      - --key
+      - /app/certs/key.pem
     restart: unless-stopped
-
-volumes:
-  certs:
 ```
 
 ### Kubernetes (Helm)
@@ -495,12 +448,6 @@ helm repo update
 helm install instanton instanton/instanton-server \
   --set domain=tunnel.example.com \
   --set ingress.enabled=true
-```
-
-### Kubernetes (Manual)
-
-```bash
-kubectl apply -f https://raw.githubusercontent.com/DrRuin/instanton/main/deploy/k8s/
 ```
 
 <br/>
@@ -567,6 +514,33 @@ tunnels:
 
 <br/>
 
+## Error Handling
+
+Instanton provides clear, actionable error messages:
+
+```mermaid
+flowchart TB
+    subgraph ErrorBox["⚠️ Error: CONNECTION_TIMEOUT"]
+        direction TB
+        E1["Connection to instanton.tech timed out after 30.0s."]
+        E2["Please check your network connection and server address."]
+    end
+
+    style ErrorBox fill:#fee2e2,stroke:#dc2626,color:#991b1b
+```
+
+Common error codes:
+- `CONNECTION_TIMEOUT` - Server not reachable
+- `SUBDOMAIN_TAKEN` - Requested subdomain in use
+- `SERVER_FULL` - Server at capacity
+- `LOCAL_SERVICE_ERROR` - Local service not running
+
+<br/>
+
+---
+
+<br/>
+
 ## Testing
 
 ```bash
@@ -577,7 +551,7 @@ cd instanton
 # Install development dependencies
 pip install -e ".[dev]"
 
-# Run all tests (1000+)
+# Run all tests (1258+)
 pytest tests/ -v
 
 # Run with coverage
@@ -585,8 +559,8 @@ pytest tests/ -v --cov=instanton --cov-report=html
 
 # Run specific test categories
 pytest tests/test_protocol.py -v
-pytest tests/test_security.py -v
-pytest tests/test_loadbalancer.py -v
+pytest tests/test_scalability.py -v
+pytest tests/test_exceptions.py -v
 ```
 
 <br/>
@@ -639,6 +613,7 @@ git push origin feature/amazing-feature
 - [x] Docker & Kubernetes
 - [x] Helm charts
 - [x] Python SDK
+- [x] Comprehensive error handling
 - [ ] SAML authentication
 - [ ] Web dashboard
 - [ ] Terraform provider

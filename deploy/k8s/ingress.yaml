@@ -47,14 +47,14 @@ spec:
               service:
                 name: instanton-control
                 port:
-                  number: 8443
+                  number: 4443
           - path: /health
             pathType: Exact
             backend:
               service:
                 name: instanton-control
                 port:
-                  number: 8443
+                  number: 4443
           - path: /
             pathType: Prefix
             backend:

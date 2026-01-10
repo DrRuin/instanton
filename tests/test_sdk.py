@@ -76,8 +76,20 @@ class TestSubdomainSuggestion:
         pyproject.write_text('[project]\nname = "my-awesome-app"')
 
         monkeypatch.chdir(tmp_path)
-        result = _suggest_subdomain()
+        # Use with_unique_suffix=False to test base name extraction
+        result = _suggest_subdomain(with_unique_suffix=False)
         assert result == "my-awesome-app"
+
+    def test_suggest_from_pyproject_with_suffix(self, tmp_path: Path, monkeypatch):
+        """Test suggestion from pyproject.toml includes unique suffix by default."""
+        import re
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text('[project]\nname = "my-awesome-app"')
+
+        monkeypatch.chdir(tmp_path)
+        result = _suggest_subdomain()
+        # Should match pattern: my-awesome-app-xxxx where xxxx is 4 hex chars
+        assert re.match(r"^my-awesome-app-[0-9a-f]{4}$", result)
 
     def test_suggest_from_package_json(self, tmp_path: Path, monkeypatch):
         """Test suggestion from package.json."""
@@ -85,7 +97,8 @@ class TestSubdomainSuggestion:
         package_json.write_text('{"name": "react-app"}')
 
         monkeypatch.chdir(tmp_path)
-        result = _suggest_subdomain()
+        # Use with_unique_suffix=False to test base name extraction
+        result = _suggest_subdomain(with_unique_suffix=False)
         assert result == "react-app"
 
     def test_suggest_from_scoped_npm_package(self, tmp_path: Path, monkeypatch):
@@ -94,7 +107,8 @@ class TestSubdomainSuggestion:
         package_json.write_text('{"name": "@myorg/cool-package"}')
 
         monkeypatch.chdir(tmp_path)
-        result = _suggest_subdomain()
+        # Use with_unique_suffix=False to test base name extraction
+        result = _suggest_subdomain(with_unique_suffix=False)
         assert result == "cool-package"
 
     def test_suggest_from_directory_name(self, tmp_path: Path, monkeypatch):
@@ -103,7 +117,8 @@ class TestSubdomainSuggestion:
         project_dir.mkdir()
 
         monkeypatch.chdir(project_dir)
-        result = _suggest_subdomain()
+        # Use with_unique_suffix=False to test base name extraction
+        result = _suggest_subdomain(with_unique_suffix=False)
         assert result == "my-project"
 
     def test_suggest_ignores_common_directories(self, tmp_path: Path, monkeypatch):
@@ -124,7 +139,7 @@ class TestSubdomainSuggestion:
         monkeypatch.chdir(tmp_path)
         # Should not raise, just return fallback
         result = _suggest_subdomain()
-        # Falls back to directory name
+        # Falls back to directory name (with unique suffix)
         assert result is not None
 
 

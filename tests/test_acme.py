@@ -1,9 +1,5 @@
 """Tests for ACME (Let's Encrypt) certificate management."""
 
-import asyncio
-import base64
-import hashlib
-import json
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -11,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import NameOID
 
@@ -42,7 +38,6 @@ from instanton.security.acme import (
     get_nip_domain,
     get_sslip_domain,
 )
-
 
 # ==============================================================================
 # Base64URL Encoding Tests
@@ -561,7 +556,7 @@ class TestCaddyManager:
                 return_value=mock_response
             )
 
-            result = await manager.configure_domain(
+            await manager.configure_domain(
                 "example.com",
                 "localhost:8000",
             )

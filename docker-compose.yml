@@ -31,15 +31,19 @@ services:
       - "0.0.0.0:4443"
       - "--https-bind"
       - "0.0.0.0:443"
+      - "--cert"
+      - "/app/certs/cert.pem"
+      - "--key"
+      - "/app/certs/key.pem"
     volumes:
       - ./certs:/certs:ro
       - instanton-data:/data
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4443/health"]
+      test: ["CMD", "curl", "-fk", "https://localhost:4443/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     restart: unless-stopped
     networks:
       - instanton-network
@@ -52,9 +56,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: instanton-client
-    command: ["--port", "8000", "--server", "instanton-server:8443"]
+    command: ["--port", "8000", "--server", "instanton-server:4443"]
     environment:
-      - INSTANTON_SERVER=instanton-server:8443
+      - INSTANTON_SERVER=instanton-server:4443
       - INSTANTON_AUTH_TOKEN=${INSTANTON_AUTH_TOKEN:-}
     depends_on:
       instanton-server:

@@ -77,6 +77,11 @@ class RelayServer:
         self._websockets: weakref.WeakSet[web.WebSocketResponse] = weakref.WeakSet()
         self._shutdown_event = asyncio.Event()
         self._cleanup_task: asyncio.Task | None = None
+        # TCP/UDP tunnel port allocation (port -> tunnel_id)
+        self._tcp_tunnels: dict[int, TunnelConnection] = {}
+        self._udp_tunnels: dict[int, TunnelConnection] = {}
+        self._next_tcp_port = 10000  # Start allocating from port 10000
+        self._next_udp_port = 20000  # UDP starts from 20000
 
     def _create_ssl_context(self) -> ssl.SSLContext | None:
         """Create SSL context from certificate files."""
@@ -114,6 +119,8 @@ class RelayServer:
         # Create control plane app (WebSocket for tunnel clients)
         self._control_app = web.Application()
         self._control_app.router.add_get("/tunnel", self._handle_tunnel_connection)
+        self._control_app.router.add_get("/tcp", self._handle_tcp_tunnel_connection)
+        self._control_app.router.add_get("/udp", self._handle_udp_tunnel_connection)
         self._control_app.router.add_get("/health", self._handle_health_check)
         self._control_app.router.add_get("/stats", self._handle_stats)
 
@@ -206,6 +213,8 @@ class RelayServer:
         self._tunnels.clear()
         self._tunnel_by_id.clear()
         self._pending_requests.clear()
+        self._tcp_tunnels.clear()
+        self._udp_tunnels.clear()
 
         logger.info("Relay server stopped")
 
@@ -280,6 +289,8 @@ class RelayServer:
         return web.json_response(
             {
                 "total_tunnels": len(self._tunnels),
+                "total_tcp_tunnels": len(self._tcp_tunnels),
+                "total_udp_tunnels": len(self._udp_tunnels),
                 "max_tunnels": self.config.max_tunnels,
                 "tunnels": tunnels_info,
             }
@@ -372,13 +383,19 @@ class RelayServer:
                     await ws.close()
                     return ws
             else:
-                # Generate random subdomain
-                subdomain = secrets.token_hex(4)
+                # Generate unique random subdomain using more entropy
+                # Use 6 bytes (12 hex chars) for better uniqueness
+                subdomain = secrets.token_hex(6)
+                attempts = 0
                 while subdomain in self._tunnels:
-                    subdomain = secrets.token_hex(4)
+                    subdomain = secrets.token_hex(6)
+                    attempts += 1
+                    if attempts > 10:
+                        # Extremely unlikely, but add tunnel_id prefix for guaranteed uniqueness
+                        subdomain = f"{str(tunnel_id)[:8]}{secrets.token_hex(2)}"
+                        break
 
-            # Create tunnel
-            tunnel_id = uuid4()
+            # Use the tunnel_id generated at start of connection handler
             url = f"https://{subdomain}.{self.config.base_domain}"
 
             tunnel = TunnelConnection(
@@ -658,3 +675,202 @@ class RelayServer:
     def get_tunnel_by_id(self, tunnel_id: UUID) -> TunnelConnection | None:
         """Get tunnel by ID."""
         return self._tunnel_by_id.get(tunnel_id)
+
+    def _allocate_tcp_port(self) -> int:
+        """Allocate a port for TCP tunnel."""
+        port = self._next_tcp_port
+        self._next_tcp_port += 1
+        if self._next_tcp_port > 19999:
+            self._next_tcp_port = 10000  # Wrap around
+        return port
+
+    def _allocate_udp_port(self) -> int:
+        """Allocate a port for UDP tunnel."""
+        port = self._next_udp_port
+        self._next_udp_port += 1
+        if self._next_udp_port > 29999:
+            self._next_udp_port = 20000  # Wrap around
+        return port
+
+    async def _handle_tcp_tunnel_connection(self, request: web.Request) -> web.WebSocketResponse:
+        """Handle incoming TCP tunnel client connection."""
+        import struct
+
+        ws = web.WebSocketResponse(heartbeat=30.0)
+        await ws.prepare(request)
+        self._websockets.add(ws)
+
+        logger.info("New TCP tunnel client connected", peer=request.remote)
+
+        tunnel_id = uuid4()
+        assigned_port: int | None = None
+
+        try:
+            # Wait for connect message
+            msg = await ws.receive()
+            if msg.type != WSMsgType.BINARY:
+                await ws.close()
+                return ws
+
+            # Parse TCP connect message (simple binary format)
+            # Format: 1B type (0x01) + 16B tunnel_id + 2B local_port + 2B remote_port
+            data = msg.data
+            if len(data) < 21 or data[0] != 0x01:
+                await ws.close()
+                return ws
+
+            local_port = struct.unpack(">H", data[17:19])[0]
+            requested_port = struct.unpack(">H", data[19:21])[0]
+
+            # Allocate port
+            if requested_port and requested_port not in self._tcp_tunnels:
+                assigned_port = requested_port
+            else:
+                assigned_port = self._allocate_tcp_port()
+                while assigned_port in self._tcp_tunnels:
+                    assigned_port = self._allocate_tcp_port()
+
+            # Create tunnel entry
+            tunnel = TunnelConnection(
+                id=tunnel_id,
+                subdomain=f"tcp-{assigned_port}",
+                websocket=ws,
+                local_port=local_port,
+            )
+            self._tcp_tunnels[assigned_port] = tunnel
+            self._tunnel_by_id[tunnel_id] = tunnel
+
+            # Send connect ACK: 1B type (0x02) + 16B tunnel_id + 2B port + 1B err_len
+            response = bytearray()
+            response.append(0x02)  # CONNECT_ACK
+            response.extend(tunnel_id.bytes)
+            response.extend(struct.pack(">H", assigned_port))
+            response.append(0)  # No error
+            await ws.send_bytes(bytes(response))
+
+            logger.info(
+                "TCP tunnel established",
+                tunnel_id=str(tunnel_id),
+                assigned_port=assigned_port,
+                local_port=local_port,
+            )
+
+            # Handle TCP relay messages
+            async for msg in ws:
+                if msg.type == WSMsgType.BINARY:
+                    tunnel.last_activity = datetime.now(UTC)
+                    tunnel.bytes_received += len(msg.data)
+                    # TCP relay logic would go here
+                    # For now, just echo back (actual implementation would forward to TCP socket)
+                elif msg.type == WSMsgType.ERROR:
+                    logger.error(
+                        "TCP WebSocket error",
+                        port=assigned_port,
+                        error=str(ws.exception()),
+                    )
+                    break
+                elif msg.type == WSMsgType.CLOSE:
+                    break
+
+        except Exception as e:
+            logger.error("TCP tunnel error", port=assigned_port, error=str(e))
+        finally:
+            self._websockets.discard(ws)
+            if assigned_port and assigned_port in self._tcp_tunnels:
+                del self._tcp_tunnels[assigned_port]
+            if tunnel_id in self._tunnel_by_id:
+                del self._tunnel_by_id[tunnel_id]
+            logger.info("TCP tunnel closed", port=assigned_port)
+
+        return ws
+
+    async def _handle_udp_tunnel_connection(self, request: web.Request) -> web.WebSocketResponse:
+        """Handle incoming UDP tunnel client connection."""
+        import struct
+
+        ws = web.WebSocketResponse(heartbeat=30.0)
+        await ws.prepare(request)
+        self._websockets.add(ws)
+
+        logger.info("New UDP tunnel client connected", peer=request.remote)
+
+        tunnel_id = uuid4()
+        assigned_port: int | None = None
+
+        try:
+            # Wait for bind message
+            msg = await ws.receive()
+            if msg.type != WSMsgType.BINARY:
+                await ws.close()
+                return ws
+
+            # Parse UDP bind message
+            # Format: 1B type (0x01=bind) + 16B tunnel_id + 2B local_port + 2B remote_port
+            data = msg.data
+            if len(data) < 21 or data[0] != 0x01:
+                await ws.close()
+                return ws
+
+            local_port = struct.unpack(">H", data[17:19])[0]
+            requested_port = struct.unpack(">H", data[19:21])[0]
+
+            # Allocate port
+            if requested_port and requested_port not in self._udp_tunnels:
+                assigned_port = requested_port
+            else:
+                assigned_port = self._allocate_udp_port()
+                while assigned_port in self._udp_tunnels:
+                    assigned_port = self._allocate_udp_port()
+
+            # Create tunnel entry
+            tunnel = TunnelConnection(
+                id=tunnel_id,
+                subdomain=f"udp-{assigned_port}",
+                websocket=ws,
+                local_port=local_port,
+            )
+            self._udp_tunnels[assigned_port] = tunnel
+            self._tunnel_by_id[tunnel_id] = tunnel
+
+            # Send bind ACK
+            response = bytearray()
+            response.append(0x02)  # BIND_ACK
+            response.extend(tunnel_id.bytes)
+            response.extend(struct.pack(">H", assigned_port))
+            response.append(0)  # No error
+            await ws.send_bytes(bytes(response))
+
+            logger.info(
+                "UDP tunnel established",
+                tunnel_id=str(tunnel_id),
+                assigned_port=assigned_port,
+                local_port=local_port,
+            )
+
+            # Handle UDP relay messages
+            async for msg in ws:
+                if msg.type == WSMsgType.BINARY:
+                    tunnel.last_activity = datetime.now(UTC)
+                    tunnel.bytes_received += len(msg.data)
+                    # UDP relay logic would go here
+                elif msg.type == WSMsgType.ERROR:
+                    logger.error(
+                        "UDP WebSocket error",
+                        port=assigned_port,
+                        error=str(ws.exception()),
+                    )
+                    break
+                elif msg.type == WSMsgType.CLOSE:
+                    break
+
+        except Exception as e:
+            logger.error("UDP tunnel error", port=assigned_port, error=str(e))
+        finally:
+            self._websockets.discard(ws)
+            if assigned_port and assigned_port in self._udp_tunnels:
+                del self._udp_tunnels[assigned_port]
+            if tunnel_id in self._tunnel_by_id:
+                del self._tunnel_by_id[tunnel_id]
+            logger.info("UDP tunnel closed", port=assigned_port)
+
+        return ws

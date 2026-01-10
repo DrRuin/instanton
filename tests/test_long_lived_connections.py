@@ -822,9 +822,9 @@ class TestQUICLongLivedConnections:
 
     def test_quic_idle_timeout_configurable(self) -> None:
         """Test QUIC idle timeout is configurable for long connections."""
-        # Default is 30 seconds
+        # Default is 60 seconds (increased for global users)
         config = QuicTransportConfig()
-        assert config.idle_timeout == 30.0
+        assert config.idle_timeout == 60.0
 
         # Can be extended for long-lived connections
         config_long = QuicTransportConfig(idle_timeout=900.0)  # 15 minutes

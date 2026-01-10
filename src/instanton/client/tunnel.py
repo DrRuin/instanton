@@ -16,6 +16,18 @@ import httpx
 import structlog
 
 from instanton.core.config import ClientConfig
+from instanton.core.exceptions import (
+    ConnectionRefusedError,
+    ConnectionTimeoutError,
+    InvalidSubdomainError,
+    RateLimitError,
+    ServerFullError,
+    ServerUnavailableError,
+    SSLError,
+    SubdomainTakenError,
+    TunnelCreationError,
+    format_error_for_user,
+)
 from instanton.core.transport import QuicTransport, Transport, WebSocketTransport
 from instanton.protocol.messages import (
     CHUNK_SIZE,
@@ -54,13 +66,17 @@ class ConnectionState(Enum):
 
 @dataclass
 class ReconnectConfig:
-    """Configuration for reconnection behavior."""
+    """Configuration for reconnection behavior.
+
+    Optimized defaults for global users connecting from different countries
+    with varying network conditions and latency.
+    """
 
     enabled: bool = True
-    max_attempts: int = 10
+    max_attempts: int = 15  # Increased for resilience
     base_delay: float = 1.0
     max_delay: float = 60.0
-    jitter: float = 0.1
+    jitter: float = 0.2  # Increased jitter to reduce reconnection storms
 
 
 @dataclass
@@ -131,12 +147,14 @@ class TunnelClient:
             self.subdomain = config.subdomain
             self.use_quic = config.use_quic
             self._keepalive_interval = config.keepalive_interval
+            self._connect_timeout = config.connect_timeout
         else:
             self.local_port = local_port
             self.server_addr = server_addr
             self.subdomain = subdomain
             self.use_quic = use_quic
             self._keepalive_interval = 30.0
+            self._connect_timeout = 30.0  # Default 30s for global users
 
         self.reconnect_config = reconnect_config or ReconnectConfig()
         self.proxy_config = proxy_config or ProxyConfig()
@@ -192,6 +210,11 @@ class TunnelClient:
         return self._state == ConnectionState.CONNECTED
 
     @property
+    def connect_timeout(self) -> float:
+        """Get connection timeout in seconds."""
+        return self._connect_timeout
+
+    @property
     def stats(self) -> dict[str, Any]:
         """Get connection statistics."""
         return {
@@ -228,10 +251,23 @@ class TunnelClient:
                     logger.warning("State hook error", error=str(e))
 
     async def _create_transport(self) -> Transport:
-        """Create transport based on configuration."""
+        """Create transport with appropriate timeout settings for global users."""
         if self.use_quic:
-            return QuicTransport()
-        return WebSocketTransport()
+            return QuicTransport(
+                auto_reconnect=self.reconnect_config.enabled,
+                max_reconnect_attempts=self.reconnect_config.max_attempts,
+                reconnect_delay=self.reconnect_config.base_delay,
+                max_reconnect_delay=self.reconnect_config.max_delay,
+            )
+        return WebSocketTransport(
+            auto_reconnect=self.reconnect_config.enabled,
+            max_reconnect_attempts=self.reconnect_config.max_attempts,
+            reconnect_delay=self.reconnect_config.base_delay,
+            max_reconnect_delay=self.reconnect_config.max_delay,
+            connect_timeout=self._connect_timeout,  # Use client's connect timeout
+            ping_interval=self._keepalive_interval,
+            ping_timeout=min(self._connect_timeout / 2, 20.0),  # Half of connect timeout, max 20s
+        )
 
     async def _create_http_client(self) -> httpx.AsyncClient:
         """Create HTTP client for proxying requests.
@@ -262,7 +298,11 @@ class TunnelClient:
             Public URL for the tunnel
 
         Raises:
-            ConnectionError: If connection fails
+            ConnectionTimeoutError: If connection times out
+            ConnectionRefusedError: If server refuses connection
+            SubdomainTakenError: If subdomain is already in use
+            ServerFullError: If server is at capacity
+            TunnelCreationError: For other tunnel creation failures
         """
         self._set_state(ConnectionState.CONNECTING)
         start_time = time.monotonic()
@@ -286,13 +326,25 @@ class TunnelClient:
             # Wait for response
             data = await self._transport.recv()
             if not data:
-                raise ConnectionError("No response from server")
+                raise ServerUnavailableError(self.server_addr)
 
             msg = decode_message(data)
             response = ConnectResponse(**msg)
 
             if response.type == "error":
-                raise ConnectionError(f"Connection failed: {response.error}")
+                # Map server error codes to specific exceptions
+                error_msg = response.error or "Unknown error"
+                error_lower = error_msg.lower()
+                if "subdomain" in error_lower and "taken" in error_lower:
+                    raise SubdomainTakenError(self.subdomain or "")
+                elif "invalid subdomain" in error_lower:
+                    raise InvalidSubdomainError(self.subdomain or "")
+                elif "server full" in error_lower or "capacity" in error_lower:
+                    raise ServerFullError()
+                elif "rate limit" in error_lower:
+                    raise RateLimitError()
+                else:
+                    raise TunnelCreationError(error_msg)
 
             self._tunnel_id = response.tunnel_id
             self._url = response.url
@@ -313,10 +365,35 @@ class TunnelClient:
             self._set_state(ConnectionState.CONNECTED)
             return self._url
 
+        except (
+            ConnectionTimeoutError,
+            ConnectionRefusedError,
+            SubdomainTakenError,
+            InvalidSubdomainError,
+            ServerFullError,
+            RateLimitError,
+            TunnelCreationError,
+            ServerUnavailableError,
+        ):
+            # Re-raise our custom exceptions
+            self._set_state(ConnectionState.DISCONNECTED)
+            raise
+        except TimeoutError:
+            self._set_state(ConnectionState.DISCONNECTED)
+            raise ConnectionTimeoutError(self.server_addr, self.connect_timeout) from None
+        except OSError as e:
+            self._set_state(ConnectionState.DISCONNECTED)
+            error_msg = str(e).lower()
+            if "refused" in error_msg or "connect" in error_msg:
+                raise ConnectionRefusedError(self.server_addr, str(e)) from e
+            elif "ssl" in error_msg or "certificate" in error_msg:
+                raise SSLError(str(e)) from e
+            else:
+                raise TunnelCreationError(format_error_for_user(e)) from e
         except Exception as e:
             self._set_state(ConnectionState.DISCONNECTED)
             logger.error("Connection failed", error=str(e))
-            raise ConnectionError(f"Failed to connect: {e}") from e
+            raise TunnelCreationError(format_error_for_user(e)) from e
 
     async def _negotiate_protocol(self) -> None:
         """Negotiate protocol features with server."""
@@ -568,14 +645,26 @@ class TunnelClient:
                 break  # Don't retry on other request errors
 
         if response is None:
-            # All retries failed
-            error_msg = str(last_error) if last_error else "Unknown error"
+            # All retries failed - provide user-friendly error message
+            if isinstance(last_error, httpx.ConnectError):
+                error_msg = (
+                    f"Cannot reach local service at localhost:{self.local_port}. "
+                    "Please ensure your application is running."
+                )
+            elif isinstance(last_error, httpx.TimeoutException):
+                error_msg = (
+                    f"Local service on port {self.local_port} did not respond. "
+                    "The request may be taking too long or the service is overloaded."
+                )
+            else:
+                error_msg = f"Failed to reach local service: {type(last_error).__name__}"
+
             logger.error("Proxy failed after retries", error=error_msg)
             response = HttpResponse(
                 request_id=request.request_id,
                 status=502,
-                headers={"Content-Type": "text/plain"},
-                body=f"Bad Gateway: {error_msg}".encode(),
+                headers={"Content-Type": "application/json"},
+                body=f'{{"error": "{error_msg}", "code": "LOCAL_SERVICE_ERROR"}}'.encode(),
             )
 
         # Send response back through tunnel

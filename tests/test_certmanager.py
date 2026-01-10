@@ -22,7 +22,6 @@ from instanton.security.certmanager import (
     WildcardDNSService,
 )
 
-
 # ==============================================================================
 # Wildcard DNS Service Tests
 # ==============================================================================

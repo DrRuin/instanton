@@ -25,16 +25,16 @@ class TestWebSocketTransportInit:
     """Tests for WebSocketTransport initialization."""
 
     def test_default_initialization(self):
-        """Test default parameter values."""
+        """Test default parameter values optimized for global users."""
         transport = WebSocketTransport()
 
         assert transport._auto_reconnect is True
-        assert transport._max_reconnect_attempts == 10
+        assert transport._max_reconnect_attempts == 15  # Increased for resilience
         assert transport._reconnect_delay == 1.0
         assert transport._max_reconnect_delay == 60.0
         assert transport._ping_interval == 30.0
-        assert transport._ping_timeout == 10.0
-        assert transport._connect_timeout == 10.0
+        assert transport._ping_timeout == 15.0  # Increased for high-latency networks
+        assert transport._connect_timeout == 30.0  # Increased for global users
         assert transport._state == ConnectionState.DISCONNECTED
         assert transport._ws is None
         assert transport._shutdown is False
@@ -603,7 +603,7 @@ class TestQuicTransportConfig:
     """Tests for QuicTransportConfig dataclass."""
 
     def test_default_config(self):
-        """Test default configuration values."""
+        """Test default configuration values optimized for global users."""
         config = QuicTransportConfig()
 
         assert config.host == "localhost"
@@ -614,10 +614,10 @@ class TestQuicTransportConfig:
         assert config.key_path is None
         assert config.ca_path is None
         assert config.alpn_protocols == ["instanton"]
-        assert config.idle_timeout == 30.0
-        assert config.connection_timeout == 10.0
+        assert config.idle_timeout == 60.0  # Increased for global users
+        assert config.connection_timeout == 30.0  # Increased for high-latency networks
         assert config.auto_reconnect is True
-        assert config.max_reconnect_attempts == 10
+        assert config.max_reconnect_attempts == 15  # Increased for resilience
         assert config.reconnect_delay == 1.0
         assert config.max_reconnect_delay == 60.0
 

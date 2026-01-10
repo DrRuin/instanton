@@ -67,9 +67,9 @@ ENV INSTANTON_KEY_PATH="/app/certs/key.pem"
 # 9090 - Metrics (Prometheus)
 EXPOSE 443 4443 9090
 
-# Health check (using http since healthcheck runs before TLS is setup)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:4443/health || exit 1
+# Health check (using https with -k to skip cert verification)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -fk https://localhost:4443/health || exit 1
 
 # Volumes
 VOLUME ["/certs", "/data"]

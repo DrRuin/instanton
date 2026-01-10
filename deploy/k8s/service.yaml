@@ -34,8 +34,8 @@ spec:
   type: LoadBalancer
   ports:
     - name: control
-      port: 8443
-      targetPort: 8443
+      port: 4443
+      targetPort: 4443
       protocol: TCP
   selector:
     app.kubernetes.io/name: instanton

@@ -22,9 +22,9 @@ class TestClientConfigTimeout:
     """Tests for ClientConfig timeout settings."""
 
     def test_default_connect_timeout(self):
-        """Test default connect_timeout value."""
+        """Test default connect_timeout value (increased for global users)."""
         config = ClientConfig()
-        assert config.connect_timeout == 10.0
+        assert config.connect_timeout == 30.0  # Increased for high-latency regions
 
     def test_default_idle_timeout(self):
         """Test default idle_timeout value."""

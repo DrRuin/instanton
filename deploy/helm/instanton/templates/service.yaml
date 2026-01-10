@@ -39,7 +39,7 @@ spec:
   ports:
     - name: control
       port: {{ .Values.service.control.port }}
-      targetPort: 8443
+      targetPort: 4443
       protocol: TCP
   selector:
     {{- include "instanton.selectorLabels" . | nindent 4 }}

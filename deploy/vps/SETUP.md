@@ -11,16 +11,26 @@ Complete guide to deploy Instanton relay server on your VPS so users can get `*.
 
 ## Architecture
 
-```
-User's Machine                   Your VPS (instanton.tech)              User's localhost
-     |                                    |                                    |
-     |  instanton --port 8000             |                                    |
-     |  ─────────────────────────>        |                                    |
-     |                          [Relay Server:8443]                            |
-     |                                    |                                    |
-Internet Request                          |                                    |
-     |                                    |                                    |
-https://abc123.instanton.tech   ─────>  [HTTPS:443]  ─────────────────>  localhost:8000
+```mermaid
+flowchart LR
+    subgraph User["🖥️ User's Machine"]
+        CLI["instanton --port 8000"]
+        Local["localhost:8000"]
+    end
+
+    subgraph VPS["☁️ Your VPS (instanton.tech)"]
+        Control["Control Plane<br/>:4443"]
+        HTTPS["HTTPS Server<br/>:443"]
+    end
+
+    subgraph Internet["🌍 Internet"]
+        Request["https://abc123.instanton.tech"]
+    end
+
+    CLI -->|"WebSocket/QUIC<br/>tunnel connection"| Control
+    Request -->|"Public traffic"| HTTPS
+    HTTPS -->|"Forward via tunnel"| Control
+    Control -->|"Proxy to local"| Local
 ```
 
 ## Step 1: DNS Configuration (Hostinger)
@@ -46,7 +56,7 @@ SSH into your VPS and run:
 sudo apt update && sudo apt upgrade -y
 
 # Install required packages
-sudo apt install -y docker.io docker-compose git certbot curl
+sudo apt install -y docker.io docker compose git certbot curl
 
 # Enable Docker
 sudo systemctl enable docker
@@ -109,7 +119,7 @@ INSTANTON_AUTH_TOKEN=your-secret-token-here
 EOF
 
 # Build and start the server
-docker-compose up -d instanton-server
+docker compose up -d instanton-server
 ```
 
 ## Step 5: Verify Server is Running
@@ -140,8 +150,8 @@ Requires=docker.service
 [Service]
 Type=simple
 WorkingDirectory=/opt/instanton
-ExecStart=/usr/bin/docker-compose up
-ExecStop=/usr/bin/docker-compose down
+ExecStart=/usr/bin/docker compose up
+ExecStop=/usr/bin/docker compose down
 Restart=always
 RestartSec=10
 
@@ -163,7 +173,7 @@ cat | sudo tee /opt/instanton/renew-certs.sh << 'EOF'
 certbot renew --quiet
 cp /etc/letsencrypt/live/instanton.tech/fullchain.pem /opt/instanton/certs/cert.pem
 cp /etc/letsencrypt/live/instanton.tech/privkey.pem /opt/instanton/certs/key.pem
-docker-compose -f /opt/instanton/docker-compose.yml restart instanton-server
+docker compose -f /opt/instanton/docker-compose.yml restart instanton-server
 EOF
 
 sudo chmod +x /opt/instanton/renew-certs.sh
@@ -218,7 +228,7 @@ openssl s_client -connect instanton.tech:443 -servername instanton.tech
 ### Container not starting
 ```bash
 docker logs instanton-server
-docker-compose logs -f
+docker compose logs -f
 ```
 
 ### Connection refused
@@ -230,8 +240,8 @@ ss -tlnp | grep -E '443|4443'
 
 ## Production Recommendations
 
-1. **Monitoring**: Add Prometheus + Grafana (use `--profile monitoring` with docker-compose)
+1. **Monitoring**: Add Prometheus + Grafana (use `--profile monitoring` with docker compose)
 2. **Backups**: Backup `/opt/instanton/certs` and `/opt/instanton/.env`
-3. **Logs**: Use `docker-compose logs -f` or configure log rotation
+3. **Logs**: Use `docker compose logs -f` or configure log rotation
 4. **Security**: Use strong `INSTANTON_AUTH_TOKEN` for authenticated tunnels
 5. **Rate Limiting**: Already built-in, configure in server settings

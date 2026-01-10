@@ -42,7 +42,7 @@ spec:
               containerPort: 443
               protocol: TCP
             - name: control
-              containerPort: 8443
+              containerPort: 4443
               protocol: TCP
             - name: metrics
               containerPort: {{ .Values.metrics.port }}
