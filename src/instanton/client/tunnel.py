@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import random
 import time
+import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
@@ -450,13 +451,19 @@ class TunnelClient:
                     ConnectionState.DISCONNECTED,
                     ConnectionState.RECONNECTING,
                 ):
-                    if self.reconnect_config.enabled:
+                    # Only reconnect if still running (not cancelled)
+                    if self._running and self.reconnect_config.enabled:
                         await self._attempt_reconnect()
                     else:
                         break
+                elif self._state == ConnectionState.CLOSED:
+                    # Already closed, exit the loop
+                    break
                 else:
                     await asyncio.sleep(0.1)
             except asyncio.CancelledError:
+                # Shutdown requested - mark as not running and exit
+                self._running = False
                 break
             except Exception as e:
                 logger.error("Unexpected error in run loop", error=str(e))
@@ -465,6 +472,7 @@ class TunnelClient:
     async def _run_connected(self) -> None:
         """Run the main message loop while connected."""
         keepalive_task = asyncio.create_task(self._keepalive_loop())
+        was_cancelled = False
 
         try:
             while self._running and self._transport and self._transport.is_connected():
@@ -475,6 +483,11 @@ class TunnelClient:
 
                 self._bytes_received += len(data)
                 await self._handle_message(data)
+        except asyncio.CancelledError:
+            # Shutdown was requested via Ctrl+C
+            was_cancelled = True
+            self._running = False
+            raise  # Re-raise to propagate to run() method
         except Exception as e:
             logger.error("Error in message loop", error=str(e))
         finally:
@@ -482,10 +495,10 @@ class TunnelClient:
             with contextlib.suppress(asyncio.CancelledError):
                 await keepalive_task
 
-        # Connection lost - prepare for reconnect
-        if self._running and self.reconnect_config.enabled:
+        # Connection lost - prepare for reconnect only if not cancelled
+        if not was_cancelled and self._running and self.reconnect_config.enabled:
             self._set_state(ConnectionState.RECONNECTING)
-        else:
+        elif not was_cancelled:
             self._set_state(ConnectionState.DISCONNECTED)
 
     async def _attempt_reconnect(self) -> None:
@@ -544,7 +557,12 @@ class TunnelClient:
         try:
             msg = decode_message(data)
         except Exception as e:
-            logger.error("Failed to decode message", error=str(e))
+            logger.error(
+                "Failed to decode message",
+                error=str(e),
+                data_len=len(data),
+                data_preview=data[:50].hex() if len(data) >= 50 else data.hex(),
+            )
             return
 
         msg_type = msg.get("type")
@@ -587,6 +605,46 @@ class TunnelClient:
             path=request.path,
         )
 
+        # Build headers for local service
+        headers = dict(request.headers)
+
+        # Fix Host header for local service - many apps validate Host header
+        # Replace the external host with localhost to avoid 405/400 errors
+        headers["Host"] = f"localhost:{self.local_port}"
+
+        # Remove hop-by-hop headers that shouldn't be forwarded
+        hop_by_hop = {
+            "connection",
+            "keep-alive",
+            "proxy-authenticate",
+            "proxy-authorization",
+            "te",
+            "trailers",
+            "transfer-encoding",
+            "upgrade",
+        }
+        request_headers = {k: v for k, v in headers.items() if k.lower() not in hop_by_hop}
+
+        # Fix Origin header if present - must match the Host for CORS/CSRF validation
+        if "Origin" in request_headers:
+            # Replace external origin with localhost origin
+            request_headers["Origin"] = f"http://localhost:{self.local_port}"
+
+        # Fix Referer header if present - some apps validate this for CSRF
+        if "Referer" in request_headers:
+            # Parse the referer and replace host with localhost
+            parsed = urllib.parse.urlparse(request_headers["Referer"])
+            request_headers["Referer"] = urllib.parse.urlunparse(
+                (
+                    "http",
+                    f"localhost:{self.local_port}",
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment,
+                )
+            )
+
         response: HttpResponse | None = None
         last_error: Exception | None = None
 
@@ -596,7 +654,7 @@ class TunnelClient:
                 resp = await self._http_client.request(
                     method=request.method,
                     url=url,
-                    headers=request.headers,
+                    headers=request_headers,
                     content=request.body,
                 )
 

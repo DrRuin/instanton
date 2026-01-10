@@ -648,6 +648,29 @@ MESSAGE_TYPES: dict[str, type[BaseModel]] = {
 # ==============================================================================
 
 
+def _msgpack_default(obj: Any) -> Any:
+    """Custom msgpack serializer for types that msgpack doesn't handle natively."""
+    if isinstance(obj, UUID):
+        return str(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not msgpack serializable")
+
+
+def _serialize_for_msgpack(data: Any) -> Any:
+    """Recursively convert data for msgpack serialization.
+
+    Converts UUIDs to strings while preserving bytes as-is.
+    """
+    if isinstance(data, dict):
+        return {k: _serialize_for_msgpack(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [_serialize_for_msgpack(v) for v in data]
+    elif isinstance(data, UUID):
+        return str(data)
+    elif isinstance(data, bytes):
+        return data  # Keep bytes as-is for msgpack bin type
+    return data
+
+
 def encode_message(
     msg: BaseModel,
     compression: CompressionType = CompressionType.NONE,
@@ -661,7 +684,11 @@ def encode_message(
     - LENGTH (4 bytes): Payload length (little-endian)
     - PAYLOAD (variable): msgpack-encoded message
     """
-    payload = msgpack.packb(msg.model_dump(mode="json"), use_bin_type=True)
+    # Use model_dump() without mode="json" to preserve bytes fields as binary
+    # mode="json" would convert bytes to base64 strings which breaks binary data
+    # Then serialize UUIDs to strings while keeping bytes as bytes
+    data = _serialize_for_msgpack(msg.model_dump())
+    payload = msgpack.packb(data, use_bin_type=True)
 
     # Auto-select compression for large payloads if none specified
     if compression == CompressionType.NONE and len(payload) > MIN_COMPRESSION_SIZE:
@@ -713,7 +740,27 @@ def decode_message(data: bytes) -> dict[str, Any]:
     if compression != CompressionType.NONE:
         payload = decompress_data(payload, compression)
 
-    return msgpack.unpackb(payload, raw=False)
+    # strict_map_key=False allows bytes keys (not needed but safe)
+    # raw=False decodes str msgpack types as Python str, but keeps bin types as bytes
+    # unicode_errors='surrogateescape' handles invalid UTF-8 in str fields gracefully
+    # This properly handles binary body fields while keeping string fields as str
+    try:
+        return msgpack.unpackb(
+            payload,
+            raw=False,
+            strict_map_key=False,
+            unicode_errors="surrogateescape",
+        )
+    except Exception as e:
+        # If surrogateescape still fails, try raw mode to preserve all bytes
+        try:
+            return msgpack.unpackb(payload, raw=True, strict_map_key=False)
+        except Exception:
+            # Re-raise the original error with more context
+            raise ValueError(
+                f"Failed to decode msgpack payload (compression={compression.name}, "
+                f"payload_len={len(payload)}): {e}"
+            ) from e
 
 
 def parse_message(data: bytes) -> BaseModel:

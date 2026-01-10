@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import signal
 import sys
 
 import click
@@ -11,6 +13,9 @@ from rich.panel import Panel
 from rich.table import Table
 
 console = Console()
+
+# Global flag to track shutdown state
+_shutdown_requested = False
 
 BANNER = """
 ██╗███╗   ██╗███████╗████████╗ █████╗ ███╗   ██╗████████╗ ██████╗ ███╗   ██╗
@@ -111,22 +116,91 @@ def main(
             console.print("  instanton tcp      Start TCP tunnel", style="dim")
             return
 
-        # Start tunnel with timeout options
-        asyncio.run(
-            start_tunnel(
-                port,
-                subdomain,
-                server,
-                verbose,
-                auth_token,
-                inspect,
-                quic,
-                timeout,
-                idle_timeout,
-                keepalive,
-                no_request_timeout,
-            )
+        # Start tunnel with timeout options and proper signal handling
+        _run_tunnel_with_signal_handling(
+            port,
+            subdomain,
+            server,
+            verbose,
+            auth_token,
+            inspect,
+            quic,
+            timeout,
+            idle_timeout,
+            keepalive,
+            no_request_timeout,
         )
+
+
+def _run_tunnel_with_signal_handling(
+    port: int,
+    subdomain: str | None,
+    server: str,
+    verbose: bool,
+    auth_token: str | None,
+    inspect: bool,
+    quic: bool,
+    timeout: float,
+    idle_timeout: float,
+    keepalive: float,
+    no_request_timeout: bool,
+) -> None:
+    """Run tunnel with proper signal handling for clean Ctrl+C shutdown."""
+    global _shutdown_requested
+    _shutdown_requested = False
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    # Create the main task
+    main_task = loop.create_task(
+        start_tunnel(
+            port,
+            subdomain,
+            server,
+            verbose,
+            auth_token,
+            inspect,
+            quic,
+            timeout,
+            idle_timeout,
+            keepalive,
+            no_request_timeout,
+        )
+    )
+
+    def signal_handler(sig: int, frame: object) -> None:
+        """Handle Ctrl+C signal."""
+        global _shutdown_requested
+        if _shutdown_requested:
+            # Second Ctrl+C - force exit
+            console.print("\n[red]Force shutdown![/red]")
+            sys.exit(1)
+        _shutdown_requested = True
+        console.print("\n[yellow]Shutting down gracefully...[/yellow]")
+        # Cancel the main task to trigger cleanup
+        main_task.cancel()
+
+    # Set up signal handlers
+    signal.signal(signal.SIGINT, signal_handler)
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, signal_handler)
+
+    try:
+        loop.run_until_complete(main_task)
+    except asyncio.CancelledError:
+        pass  # Expected when Ctrl+C is pressed
+    except KeyboardInterrupt:
+        pass  # Fallback in case signal handler doesn't catch it
+    finally:
+        # Clean up pending tasks
+        pending = asyncio.all_tasks(loop)
+        for task in pending:
+            task.cancel()
+        # Wait for all tasks to complete their cancellation
+        if pending:
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        loop.close()
 
 
 async def start_tunnel(
@@ -239,12 +313,17 @@ async def start_tunnel(
             console.print("[bold]Request Inspector:[/bold] http://localhost:4040", style="cyan")
 
         await client.run()
-    except KeyboardInterrupt:
-        console.print("\nShutting down...", style="yellow")
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        # Graceful shutdown - close the client properly
         await client.close()
+        console.print("[green]Tunnel closed.[/green]")
     except Exception as e:
         # Import here to avoid circular imports
         from instanton.core.exceptions import InstantonError, format_error_for_user
+
+        # Always try to close the client on error
+        with contextlib.suppress(Exception):
+            await client.close()
 
         if isinstance(e, InstantonError):
             console.print(

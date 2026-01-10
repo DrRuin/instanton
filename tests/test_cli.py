@@ -156,7 +156,7 @@ class TestTunnelStart:
         from instanton import sdk
         with (
             patch.object(sdk, "_suggest_subdomain", return_value="my-project"),
-            patch("instanton.cli.asyncio.run") as mock_run,
+            patch("instanton.cli._run_tunnel_with_signal_handling") as mock_run,
         ):
             # This won't actually run the tunnel, just test CLI parsing
             runner.invoke(main, ["--port", "8000"])

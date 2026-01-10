@@ -111,55 +111,48 @@ class TestCLITimeoutOptions:
         result = runner.invoke(main, ["--help"])
         assert "300" in result.output  # default idle timeout
 
-    @patch("instanton.cli.asyncio.run")
-    def test_cli_passes_timeout_to_start_tunnel(
-        self, mock_run: MagicMock, runner: CliRunner
-    ):
+    @patch("instanton.cli._run_tunnel_with_signal_handling")
+    def test_cli_passes_timeout_to_start_tunnel(self, mock_run: MagicMock, runner: CliRunner):
         """Test that CLI passes timeout value to start_tunnel."""
         # Mock to prevent actual execution
         mock_run.return_value = None
 
         runner.invoke(main, ["--port", "8000", "--timeout", "60"])
-        # The command would call asyncio.run with start_tunnel
+        # The command now calls _run_tunnel_with_signal_handling
         mock_run.assert_called_once()
-        # Get the coroutine that was passed to asyncio.run
-        coro = mock_run.call_args[0][0]
-        assert coro is not None
 
-    @patch("instanton.cli.asyncio.run")
-    def test_cli_passes_idle_timeout_to_start_tunnel(
-        self, mock_run: MagicMock, runner: CliRunner
-    ):
+    @patch("instanton.cli._run_tunnel_with_signal_handling")
+    def test_cli_passes_idle_timeout_to_start_tunnel(self, mock_run: MagicMock, runner: CliRunner):
         """Test that CLI passes idle_timeout value to start_tunnel."""
         mock_run.return_value = None
 
         runner.invoke(main, ["--port", "8000", "--idle-timeout", "600"])
         mock_run.assert_called_once()
 
-    @patch("instanton.cli.asyncio.run")
-    def test_cli_passes_keepalive_to_start_tunnel(
-        self, mock_run: MagicMock, runner: CliRunner
-    ):
+    @patch("instanton.cli._run_tunnel_with_signal_handling")
+    def test_cli_passes_keepalive_to_start_tunnel(self, mock_run: MagicMock, runner: CliRunner):
         """Test that CLI passes keepalive value to start_tunnel."""
         mock_run.return_value = None
 
         runner.invoke(main, ["--port", "8000", "--keepalive", "15"])
         mock_run.assert_called_once()
 
-    @patch("instanton.cli.asyncio.run")
-    def test_cli_all_timeout_options_together(
-        self, mock_run: MagicMock, runner: CliRunner
-    ):
+    @patch("instanton.cli._run_tunnel_with_signal_handling")
+    def test_cli_all_timeout_options_together(self, mock_run: MagicMock, runner: CliRunner):
         """Test all timeout options together."""
         mock_run.return_value = None
 
         runner.invoke(
             main,
             [
-                "--port", "8000",
-                "--timeout", "45",
-                "--idle-timeout", "900",
-                "--keepalive", "20",
+                "--port",
+                "8000",
+                "--timeout",
+                "45",
+                "--idle-timeout",
+                "900",
+                "--keepalive",
+                "20",
             ],
         )
         mock_run.assert_called_once()
@@ -457,10 +450,8 @@ class TestTimeoutEdgeCases:
 class TestCLIVerboseOutput:
     """Tests for CLI verbose output with timeout information."""
 
-    @patch("instanton.cli.asyncio.run")
-    def test_verbose_shows_timeout_info(
-        self, mock_run: MagicMock
-    ):
+    @patch("instanton.cli._run_tunnel_with_signal_handling")
+    def test_verbose_shows_timeout_info(self, mock_run: MagicMock):
         """Test that verbose mode shows timeout information."""
         runner = CliRunner()
         mock_run.return_value = None

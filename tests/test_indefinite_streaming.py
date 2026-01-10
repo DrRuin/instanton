@@ -118,16 +118,12 @@ class TestCLINoRequestTimeout:
         result = runner.invoke(main, ["--help"])
         assert "long-running" in result.output or "streaming" in result.output
 
-    @patch("instanton.cli.asyncio.run")
-    def test_no_request_timeout_flag_passed(
-        self, mock_run: MagicMock, runner: CliRunner
-    ):
+    @patch("instanton.cli._run_tunnel_with_signal_handling")
+    def test_no_request_timeout_flag_passed(self, mock_run: MagicMock, runner: CliRunner):
         """Test that --no-request-timeout flag is passed to start_tunnel."""
         mock_run.return_value = None
 
-        runner.invoke(
-            main, ["--port", "8000", "--no-request-timeout"]
-        )
+        runner.invoke(main, ["--port", "8000", "--no-request-timeout"])
         mock_run.assert_called_once()
 
     def test_cli_shows_indefinite_example(self, runner: CliRunner):
@@ -158,7 +154,7 @@ class TestStreamingSupport:
         chunk_data = ChunkData(
             stream_id=stream_id,
             sequence=0,
-            data=b"data: {\"event\": \"update\"}\n\n",
+            data=b'data: {"event": "update"}\n\n',
             is_final=False,
         )
 
@@ -484,29 +480,29 @@ class TestCLITimeoutIntegration:
         """Create CLI runner."""
         return CliRunner()
 
-    @patch("instanton.cli.asyncio.run")
-    def test_cli_with_all_timeout_options(
-        self, mock_run: MagicMock, runner: CliRunner
-    ):
+    @patch("instanton.cli._run_tunnel_with_signal_handling")
+    def test_cli_with_all_timeout_options(self, mock_run: MagicMock, runner: CliRunner):
         """Test CLI with all timeout-related options."""
         mock_run.return_value = None
 
         runner.invoke(
             main,
             [
-                "--port", "8000",
-                "--timeout", "60",
-                "--idle-timeout", "600",
-                "--keepalive", "15",
+                "--port",
+                "8000",
+                "--timeout",
+                "60",
+                "--idle-timeout",
+                "600",
+                "--keepalive",
+                "15",
                 "--no-request-timeout",
             ],
         )
         mock_run.assert_called_once()
 
-    @patch("instanton.cli.asyncio.run")
-    def test_cli_streaming_api_configuration(
-        self, mock_run: MagicMock, runner: CliRunner
-    ):
+    @patch("instanton.cli._run_tunnel_with_signal_handling")
+    def test_cli_streaming_api_configuration(self, mock_run: MagicMock, runner: CliRunner):
         """Test CLI configuration for streaming APIs."""
         mock_run.return_value = None
 

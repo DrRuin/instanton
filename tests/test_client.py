@@ -403,10 +403,11 @@ class TestHttpRequestProxying:
         await client._handle_http_request(http_request)
 
         # Verify HTTP client was called correctly
+        # Note: Host header is now added by the client for local service compatibility
         mock_http_client.request.assert_called_once_with(
             method="GET",
             url="http://localhost:8080/api/test",
-            headers={"Accept": "application/json"},
+            headers={"Accept": "application/json", "Host": "localhost:8080"},
             content=b"",
         )
 
