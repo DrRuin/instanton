@@ -41,26 +41,49 @@ echo -e "\n${YELLOW}[1/7] Installing dependencies...${NC}"
 apt update
 apt install -y ca-certificates curl gnupg git certbot ufw
 
-# Install Docker from official repository (includes Compose V2)
-if ! command -v docker &> /dev/null; then
-    install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    chmod a+r /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-    apt update
-    apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker compose-plugin
-fi
+# Check if Docker Compose V2 is already available
+if docker compose version &> /dev/null 2>&1; then
+    echo -e "${GREEN}✓ Docker Compose V2 already installed${NC}"
+else
+    echo -e "${YELLOW}Installing Docker with Compose V2...${NC}"
 
-# Verify Docker Compose V2 is available
-if ! docker compose version &> /dev/null; then
-    echo -e "${YELLOW}Installing Docker Compose plugin...${NC}"
-    apt install -y docker compose-plugin
+    # Remove legacy docker-compose if present
+    apt remove -y docker-compose 2>/dev/null || true
+
+    # Check if docker.io is installed (Ubuntu package)
+    if dpkg -l | grep -q docker.io; then
+        echo -e "${YELLOW}Detected docker.io, installing standalone Docker Compose V2...${NC}"
+        # Install Docker Compose V2 as standalone binary (works with docker.io)
+        COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+        mkdir -p /usr/local/lib/docker/cli-plugins
+        curl -SL "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" -o /usr/local/lib/docker/cli-plugins/docker-compose
+        chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+        # Also create symlink for CLI plugin
+        mkdir -p ~/.docker/cli-plugins 2>/dev/null || true
+        ln -sf /usr/local/lib/docker/cli-plugins/docker-compose ~/.docker/cli-plugins/docker-compose 2>/dev/null || true
+    else
+        # Fresh install - use Docker official repository
+        echo -e "${YELLOW}Installing Docker CE from official repository...${NC}"
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+        apt update
+        apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    fi
 fi
 
 systemctl enable docker
 systemctl start docker
 
-echo -e "${GREEN}✓ Dependencies installed (Docker with Compose V2)${NC}"
+# Verify installation
+if docker compose version &> /dev/null 2>&1; then
+    echo -e "${GREEN}✓ Docker Compose V2 installed: $(docker compose version --short)${NC}"
+else
+    echo -e "${RED}✗ Docker Compose V2 installation failed${NC}"
+    exit 1
+fi
 
 # Step 2: Create directory structure
 echo -e "\n${YELLOW}[2/7] Setting up directories...${NC}"
@@ -182,7 +205,7 @@ systemctl enable instanton
 
 # Setup certificate renewal cron
 cat > /etc/cron.d/instanton-cert-renewal << EOF
-0 0,12 * * * root certbot renew --quiet && cp /etc/letsencrypt/live/${DOMAIN}/fullchain.pem ${INSTANTON_DIR}/certs/cert.pem && cp /etc/letsencrypt/live/${DOMAIN}/privkey.pem ${INSTANTON_DIR}/certs/key.pem && docker compose -f ${INSTANTON_DIR}/docker compose.yml restart instanton-server
+0 0,12 * * * root certbot renew --quiet && cp /etc/letsencrypt/live/${DOMAIN}/fullchain.pem ${INSTANTON_DIR}/certs/cert.pem && cp /etc/letsencrypt/live/${DOMAIN}/privkey.pem ${INSTANTON_DIR}/certs/key.pem && cd ${INSTANTON_DIR} && docker compose restart instanton-server
 EOF
 
 echo ""

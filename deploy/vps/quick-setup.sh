@@ -11,24 +11,52 @@ INSTANTON_DIR="/opt/instanton"
 
 echo "🚀 Installing Instanton relay server for ${DOMAIN}..."
 
-# Install Docker with Compose V2 plugin (NOT legacy docker-compose)
-if ! command -v docker &> /dev/null; then
-    apt update
-    apt install -y ca-certificates curl gnupg
-    install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-    chmod a+r /etc/apt/keyrings/docker.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
-    apt update
-    apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+# Install basic deps
+apt update
+apt install -y ca-certificates curl gnupg git
+
+# Check if Docker Compose V2 is already available
+if docker compose version &> /dev/null 2>&1; then
+    echo "✓ Docker Compose V2 already installed"
+else
+    echo "Installing Docker Compose V2..."
+
+    # Remove legacy docker-compose if present
+    apt remove -y docker-compose 2>/dev/null || true
+
+    # Check if docker.io is installed (Ubuntu package)
+    if dpkg -l 2>/dev/null | grep -q docker.io; then
+        echo "Detected docker.io, installing standalone Docker Compose V2..."
+        # Install Docker Compose V2 as standalone binary (works with docker.io)
+        COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+        mkdir -p /usr/local/lib/docker/cli-plugins
+        curl -SL "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" -o /usr/local/lib/docker/cli-plugins/docker-compose
+        chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+    elif ! command -v docker &> /dev/null; then
+        echo "Installing Docker CE from official repository..."
+        install -m 0755 -d /etc/apt/keyrings
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+        chmod a+r /etc/apt/keyrings/docker.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+        apt update
+        apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+    else
+        # Docker installed but no compose - install standalone binary
+        echo "Installing standalone Docker Compose V2..."
+        COMPOSE_VERSION=$(curl -s https://api.github.com/repos/docker/compose/releases/latest | grep '"tag_name"' | cut -d'"' -f4)
+        mkdir -p /usr/local/lib/docker/cli-plugins
+        curl -SL "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-$(uname -m)" -o /usr/local/lib/docker/cli-plugins/docker-compose
+        chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+    fi
     systemctl enable docker && systemctl start docker
 fi
 
-# Verify Docker Compose V2 is available
-if ! docker compose version &> /dev/null; then
-    echo "⚠️  Installing Docker Compose plugin..."
-    apt install -y docker-compose-plugin
+# Verify Docker Compose V2
+if ! docker compose version &> /dev/null 2>&1; then
+    echo "❌ Docker Compose V2 installation failed"
+    exit 1
 fi
+echo "✓ Docker Compose V2: $(docker compose version --short)"
 
 # Setup directories
 mkdir -p ${INSTANTON_DIR}/certs
