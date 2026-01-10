@@ -14,6 +14,8 @@ services:
       context: .
       dockerfile: Dockerfile.server
     container_name: instanton-server
+    # Run as root so entrypoint can copy certs with correct permissions
+    user: root
     ports:
       - "443:443"      # HTTPS (public traffic to tunnels)
       - "4443:4443"    # Control plane (tunnel WebSocket)
@@ -22,16 +24,13 @@ services:
       - INSTANTON_DOMAIN=${INSTANTON_DOMAIN:-instanton.tech}
       - INSTANTON_LOG_LEVEL=${INSTANTON_LOG_LEVEL:-info}
     command:
+      - "instanton-server"
       - "--domain"
       - "${INSTANTON_DOMAIN:-instanton.tech}"
       - "--control-bind"
       - "0.0.0.0:4443"
       - "--https-bind"
       - "0.0.0.0:443"
-      - "--cert"
-      - "/certs/cert.pem"
-      - "--key"
-      - "/certs/key.pem"
     volumes:
       - ./certs:/certs:ro
       - instanton-data:/data
