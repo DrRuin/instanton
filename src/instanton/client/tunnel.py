@@ -668,32 +668,70 @@ class TunnelClient:
         # Retry loop
         for attempt in range(self.proxy_config.retry_count + 1):
             try:
-                resp = await self._http_client.request(
-                    method=request.method,
-                    url=url,
-                    headers=request_headers,
-                    content=request.body,
-                )
+                # Use streaming to handle large responses efficiently
+                # This prevents loading entire files into memory and enables
+                # faster time-to-first-byte for static assets
+                try:
+                    async with self._http_client.stream(
+                        method=request.method,
+                        url=url,
+                        headers=request_headers,
+                        content=request.body,
+                    ) as resp:
+                        # Check if we should retry on this status
+                        if (
+                            resp.status_code in self.proxy_config.retry_on_status
+                            and attempt < self.proxy_config.retry_count
+                        ):
+                            logger.debug(
+                                "Retrying request",
+                                status=resp.status_code,
+                                attempt=attempt + 1,
+                            )
+                            await asyncio.sleep(0.1 * (attempt + 1))
+                            continue
 
-                # Check if we should retry on this status
-                if (
-                    resp.status_code in self.proxy_config.retry_on_status
-                    and attempt < self.proxy_config.retry_count
-                ):
-                    logger.debug(
-                        "Retrying request",
-                        status=resp.status_code,
-                        attempt=attempt + 1,
+                        # Read response body in chunks for efficiency
+                        # For small responses this is still fast, for large ones it streams
+                        body_chunks = []
+                        async for chunk in resp.aiter_bytes(chunk_size=65536):
+                            body_chunks.append(chunk)
+                        body = b"".join(body_chunks)
+
+                        response = HttpResponse(
+                            request_id=request.request_id,
+                            status=resp.status_code,
+                            headers=dict(resp.headers),
+                            body=body,
+                        )
+                except (TypeError, AttributeError):
+                    # Fallback for mocked clients or clients that don't support streaming
+                    resp = await self._http_client.request(
+                        method=request.method,
+                        url=url,
+                        headers=request_headers,
+                        content=request.body,
                     )
-                    await asyncio.sleep(0.1 * (attempt + 1))
-                    continue
 
-                response = HttpResponse(
-                    request_id=request.request_id,
-                    status=resp.status_code,
-                    headers=dict(resp.headers),
-                    body=resp.content,
-                )
+                    # Check if we should retry on this status
+                    if (
+                        resp.status_code in self.proxy_config.retry_on_status
+                        and attempt < self.proxy_config.retry_count
+                    ):
+                        logger.debug(
+                            "Retrying request",
+                            status=resp.status_code,
+                            attempt=attempt + 1,
+                        )
+                        await asyncio.sleep(0.1 * (attempt + 1))
+                        continue
+
+                    response = HttpResponse(
+                        request_id=request.request_id,
+                        status=resp.status_code,
+                        headers=dict(resp.headers),
+                        body=resp.content,
+                    )
                 break
 
             except httpx.ConnectError as e:

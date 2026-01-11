@@ -631,11 +631,35 @@ class RelayServer:
                     continue
                 response_headers[key] = value
 
-            return web.Response(
-                status=response.status,
-                headers=response_headers,
-                body=response.body,
-            )
+            # Use StreamResponse for large responses to improve time-to-first-byte
+            # This sends headers immediately and streams body in chunks
+            body_size = len(response.body) if response.body else 0
+
+            if body_size > 65536:  # 64KB threshold for streaming
+                # Use streaming for large responses
+                stream_response = web.StreamResponse(
+                    status=response.status,
+                    headers=response_headers,
+                )
+                # Enable chunked encoding for streaming
+                stream_response.enable_chunked_encoding()
+                await stream_response.prepare(request)
+
+                # Write body in chunks
+                chunk_size = 65536  # 64KB chunks
+                body = response.body
+                for i in range(0, body_size, chunk_size):
+                    await stream_response.write(body[i : i + chunk_size])
+
+                await stream_response.write_eof()
+                return stream_response
+            else:
+                # Use regular response for small payloads (faster)
+                return web.Response(
+                    status=response.status,
+                    headers=response_headers,
+                    body=response.body,
+                )
 
         except TimeoutError:
             logger.warning(
