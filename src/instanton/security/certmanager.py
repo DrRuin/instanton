@@ -31,7 +31,7 @@ import httpx
 import structlog
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, ed448, rsa
+from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed448, ed25519, rsa
 from cryptography.x509.oid import ExtensionOID, NameOID
 
 logger = structlog.get_logger()
@@ -587,7 +587,13 @@ class CertificateGenerator:
         # Type narrow to supported key types for signing
         if not isinstance(
             ca_key_raw,
-            (rsa.RSAPrivateKey, ec.EllipticCurvePrivateKey, ed25519.Ed25519PrivateKey, ed448.Ed448PrivateKey, dsa.DSAPrivateKey),
+            (
+                rsa.RSAPrivateKey,
+                ec.EllipticCurvePrivateKey,
+                ed25519.Ed25519PrivateKey,
+                ed448.Ed448PrivateKey,
+                dsa.DSAPrivateKey,
+            ),
         ):
             raise ValueError(f"Unsupported CA key type: {type(ca_key_raw)}")
         ca_key = ca_key_raw
@@ -614,7 +620,13 @@ class CertificateGenerator:
         # Type narrow for AuthorityKeyIdentifier (accepts fewer types than sign)
         if isinstance(
             ca_public_key,
-            (rsa.RSAPublicKey, ec.EllipticCurvePublicKey, ed25519.Ed25519PublicKey, ed448.Ed448PublicKey, dsa.DSAPublicKey),
+            (
+                rsa.RSAPublicKey,
+                ec.EllipticCurvePublicKey,
+                ed25519.Ed25519PublicKey,
+                ed448.Ed448PublicKey,
+                dsa.DSAPublicKey,
+            ),
         ):
             builder = builder.add_extension(
                 x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_public_key),
