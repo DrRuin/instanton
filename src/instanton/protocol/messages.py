@@ -186,6 +186,9 @@ class ChunkStart(BaseModel):
     request_id: UUID
     total_size: int | None = None  # None if unknown (streaming)
     content_type: str = "application/octet-stream"
+    # HTTP response metadata for chunked responses
+    status: int = 200
+    headers: dict[str, str] = Field(default_factory=dict)
 
 
 class ChunkData(BaseModel):
@@ -884,8 +887,18 @@ def create_chunks(
     request_id: UUID,
     chunk_size: int = CHUNK_SIZE,
     content_type: str = "application/octet-stream",
+    status: int = 200,
+    headers: dict[str, str] | None = None,
 ) -> tuple[ChunkStart, list[ChunkData], ChunkEnd]:
     """Split data into chunks for streaming transfer.
+
+    Args:
+        data: The data to split into chunks
+        request_id: The request ID this response is for
+        chunk_size: Size of each chunk in bytes
+        content_type: Content-Type header value
+        status: HTTP status code (default 200)
+        headers: HTTP response headers
 
     Returns:
         Tuple of (ChunkStart, list of ChunkData, ChunkEnd)
@@ -899,6 +912,8 @@ def create_chunks(
         request_id=request_id,
         total_size=len(data),
         content_type=content_type,
+        status=status,
+        headers=headers or {},
     )
 
     chunks: list[ChunkData] = []

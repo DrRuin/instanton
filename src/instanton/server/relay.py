@@ -18,6 +18,10 @@ from aiohttp import WSMsgType, web
 
 from instanton.core.config import ServerConfig
 from instanton.protocol.messages import (
+    ChunkAssembler,
+    ChunkData,
+    ChunkEnd,
+    ChunkStart,
     CompressionType,
     ConnectRequest,
     ConnectResponse,
@@ -82,6 +86,10 @@ class RelayServer:
         self._udp_tunnels: dict[int, TunnelConnection] = {}
         self._next_tcp_port = 10000  # Start allocating from port 10000
         self._next_udp_port = 20000  # UDP starts from 20000
+        # Chunk assembler for handling large chunked responses from clients
+        self._chunk_assembler = ChunkAssembler()
+        # Map stream_id -> (request_id, status, headers) for chunked responses
+        self._chunk_streams: dict[UUID, tuple[UUID, int, dict[str, str]]] = {}
 
     def _create_ssl_context(self) -> ssl.SSLContext | None:
         """Create SSL context from certificate files."""
@@ -491,6 +499,69 @@ class RelayServer:
                 if ctx and not ctx.future.done():
                     ctx.future.set_result(response)
 
+            elif msg_type == "chunk_start":
+                # Start of chunked response - register the stream
+                chunk_start = ChunkStart(**msg)
+                self._chunk_assembler.start_stream(chunk_start)
+                # Store mapping from stream_id to (request_id, status, headers)
+                # We'll need these to construct the HttpResponse when complete
+                headers = chunk_start.headers.copy() if chunk_start.headers else {}
+                if "Content-Type" not in headers:
+                    headers["Content-Type"] = chunk_start.content_type
+                self._chunk_streams[chunk_start.stream_id] = (
+                    chunk_start.request_id,
+                    chunk_start.status,
+                    headers,
+                )
+                logger.debug(
+                    "Chunk stream started",
+                    stream_id=str(chunk_start.stream_id),
+                    request_id=str(chunk_start.request_id),
+                    total_size=chunk_start.total_size,
+                    status=chunk_start.status,
+                )
+
+            elif msg_type == "chunk_data":
+                # Chunk data - add to assembler
+                chunk_data = ChunkData(**msg)
+                try:
+                    self._chunk_assembler.add_chunk(chunk_data)
+                except ValueError as e:
+                    logger.warning("Chunk error", error=str(e))
+
+            elif msg_type == "chunk_end":
+                # End of chunked response - assemble and deliver
+                chunk_end = ChunkEnd(**msg)
+                stream_info = self._chunk_streams.pop(chunk_end.stream_id, None)
+                if stream_info:
+                    request_id, status, headers = stream_info
+                    try:
+                        body = self._chunk_assembler.end_stream(chunk_end)
+                        # Create response and deliver to pending request
+                        response = HttpResponse(
+                            request_id=request_id,
+                            status=status,
+                            headers=headers,
+                            body=body,
+                        )
+                        ctx = self._pending_requests.get(request_id)
+                        if ctx and not ctx.future.done():
+                            ctx.future.set_result(response)
+                        logger.debug(
+                            "Chunk stream completed",
+                            stream_id=str(chunk_end.stream_id),
+                            request_id=str(request_id),
+                            total_chunks=chunk_end.total_chunks,
+                            body_size=len(body),
+                        )
+                    except ValueError as e:
+                        logger.error("Chunk assembly error", error=str(e))
+                else:
+                    logger.warning(
+                        "Chunk end for unknown stream",
+                        stream_id=str(chunk_end.stream_id),
+                    )
+
             elif msg_type == "ping":
                 pong = Pong(timestamp=msg["timestamp"], server_time=int(time.time() * 1000))
                 await tunnel.websocket.send_bytes(encode_message(pong, tunnel.compression))
@@ -630,6 +701,12 @@ class RelayServer:
                         response_headers[key] = value
                     continue
                 response_headers[key] = value
+
+            # Always set Connection header for proper HTTP/1.1 behavior
+            # This prevents browsers from hanging while waiting for connection state
+            # Cloudflare does this: "Connection: keep-alive"
+            if not is_websocket_response:
+                response_headers["Connection"] = "keep-alive"
 
             # Use StreamResponse for large responses to improve time-to-first-byte
             # This sends headers immediately and streams body in chunks

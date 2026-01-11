@@ -797,6 +797,8 @@ class TunnelClient:
             response.request_id,
             self._chunk_size,
             response.headers.get("Content-Type", "application/octet-stream"),
+            status=response.status,
+            headers=response.headers,
         )
 
         # Send chunk start
