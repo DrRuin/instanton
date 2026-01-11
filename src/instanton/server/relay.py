@@ -249,11 +249,15 @@ class RelayServer:
                 self._tunnels.pop(subdomain, None)
                 self._tunnel_by_id.pop(tunnel.id, None)
 
-        # Clean up stale pending requests (older than 60 seconds)
+        # Clean up stale pending requests (older than request_timeout + 30s buffer)
+        # Only cleanup if timeout is configured (not indefinite)
+        timeout = self.config.request_timeout
+        # Use timeout + buffer if configured, otherwise 10 minutes for indefinite mode
+        stale_threshold = timeout + 30.0 if timeout and timeout > 0 else 600.0
         stale_request_ids = [
             req_id
             for req_id, ctx in self._pending_requests.items()
-            if current_time - ctx.created_at > 60.0
+            if current_time - ctx.created_at > stale_threshold
         ]
         for req_id in stale_request_ids:
             ctx = self._pending_requests.pop(req_id, None)
@@ -544,20 +548,34 @@ class RelayServer:
         body = await request.read()
 
         # Prepare headers (filter out hop-by-hop headers)
+        # IMPORTANT: Preserve Connection: upgrade and Upgrade headers for WebSocket support
+        # This follows ngrok's pattern of forwarding upgrade headers
         headers = {}
         hop_by_hop = {
-            "connection",
             "keep-alive",
             "proxy-authenticate",
             "proxy-authorization",
             "te",
             "trailers",
             "transfer-encoding",
-            "upgrade",
         }
+
+        # Check if this is a WebSocket upgrade request
+        connection_header = request.headers.get("Connection", "").lower()
+        upgrade_header = request.headers.get("Upgrade", "").lower()
+        is_websocket_upgrade = "upgrade" in connection_header and upgrade_header == "websocket"
+
         for key, value in request.headers.items():
-            if key.lower() not in hop_by_hop:
-                headers[key] = value
+            key_lower = key.lower()
+            # Skip standard hop-by-hop headers
+            if key_lower in hop_by_hop:
+                continue
+            # For WebSocket upgrades, preserve connection and upgrade headers
+            if key_lower in ("connection", "upgrade"):
+                if is_websocket_upgrade:
+                    headers[key] = value
+                continue
+            headers[key] = value
 
         # Add X-Forwarded headers
         headers["X-Forwarded-For"] = request.remote or ""
@@ -589,14 +607,29 @@ class RelayServer:
             tunnel.bytes_sent += len(msg_bytes)
             tunnel.last_activity = datetime.now(UTC)
 
-            # Wait for response with timeout
-            response = await asyncio.wait_for(future, timeout=30.0)
+            # Wait for response with configurable timeout
+            # Default 120s matches Cloudflare. None/0 means indefinite.
+            timeout = self.config.request_timeout
+            if timeout is None or timeout <= 0:
+                # Indefinite timeout - wait forever
+                response = await future
+            else:
+                response = await asyncio.wait_for(future, timeout=timeout)
 
             # Build response headers
+            # For WebSocket upgrade responses (status 101), preserve upgrade headers
+            is_websocket_response = response.status == 101
             response_headers = {}
             for key, value in response.headers.items():
-                if key.lower() not in hop_by_hop:
-                    response_headers[key] = value
+                key_lower = key.lower()
+                if key_lower in hop_by_hop:
+                    continue
+                # For WebSocket responses, preserve connection and upgrade headers
+                if key_lower in ("connection", "upgrade"):
+                    if is_websocket_response:
+                        response_headers[key] = value
+                    continue
+                response_headers[key] = value
 
             return web.Response(
                 status=response.status,

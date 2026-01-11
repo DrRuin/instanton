@@ -23,6 +23,8 @@ services:
     environment:
       - INSTANTON_DOMAIN=${INSTANTON_DOMAIN:-instanton.tech}
       - INSTANTON_LOG_LEVEL=${INSTANTON_LOG_LEVEL:-info}
+      # Request timeout in seconds. Default 120s. Set to 0 for indefinite (streaming APIs)
+      - INSTANTON_REQUEST_TIMEOUT=${INSTANTON_REQUEST_TIMEOUT:-120}
     command:
       - "instanton-server"
       - "--domain"
@@ -35,6 +37,8 @@ services:
       - "/app/certs/cert.pem"
       - "--key"
       - "/app/certs/key.pem"
+      - "--request-timeout"
+      - "${INSTANTON_REQUEST_TIMEOUT:-120}"
     volumes:
       - ./certs:/certs:ro
       - instanton-data:/data

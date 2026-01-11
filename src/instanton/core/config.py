@@ -213,5 +213,12 @@ class ServerConfig(BaseModel):
     max_tunnels: int = 10000
     rate_limit: int = 1000  # Deprecated: use security.rate_limit instead
     idle_timeout: float = 300.0
+    # Request timeout: how long to wait for the client to respond.
+    # Default 120s matches Cloudflare's proxy read timeout.
+    # Set to None or 0 for indefinite (streaming/long-running APIs).
+    request_timeout: float | None = Field(
+        default=120.0,
+        description="Timeout in seconds for HTTP requests. None or 0 for indefinite.",
+    )
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)

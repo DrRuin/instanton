@@ -284,32 +284,43 @@ Instanton is designed to handle thousands of concurrent users:
 
 <br/>
 
-```mermaid
-flowchart LR
-    subgraph ZeroTrust["ZERO TRUST ARCHITECTURE"]
-        direction LR
-        A["🔐 Identity<br/>Verify"] --> B["💻 Device<br/>Posture"]
-        B --> C["⚠️ Risk<br/>Score"]
-        C --> D["✅ Access<br/>Decision"]
-    end
+<div align="center">
+
+```
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                         ZERO TRUST ARCHITECTURE                                ║
+║                        "Never Trust, Always Verify"                            ║
+╠═══════════════════════════════════════════════════════════════════════════════╣
+║                                                                               ║
+║   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐   ║
+║   │   IDENTITY  │───▶│   DEVICE    │───▶│    RISK     │───▶│   ACCESS    │   ║
+║   │   VERIFY    │    │   POSTURE   │    │   SCORE     │    │  DECISION   │   ║
+║   └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘   ║
+║        Who?             What?             How risky?         Allow/Deny       ║
+║                                                                               ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
 ```
 
-```mermaid
-flowchart TB
-    subgraph TrustLevels["Trust Levels & Access Rights"]
-        direction LR
-        U["UNTRUSTED"] --> L["LOW"]
-        L --> M["MEDIUM"]
-        M --> H["HIGH"]
-        H --> V["VERIFIED"]
-    end
+</div>
 
-    U -.-> UB["🚫 Block"]
-    L -.-> LA["Limited Access"]
-    M -.-> SA["Standard Access"]
-    H -.-> EA["Extended Access"]
-    V -.-> FA["✅ Full Access"]
+<div align="center">
+
 ```
+                              TRUST LEVELS & ACCESS RIGHTS
+    ╔═══════════════════════════════════════════════════════════════════════════╗
+    ║                                                                           ║
+    ║   UNTRUSTED ──▶ LOW ──▶ MEDIUM ──▶ HIGH ──▶ VERIFIED                     ║
+    ║       │          │         │         │          │                         ║
+    ║       ▼          ▼         ▼         ▼          ▼                         ║
+    ║    ┌──────┐  ┌───────┐  ┌───────┐  ┌───────┐  ┌───────┐                  ║
+    ║    │BLOCK │  │Limited│  │Standard│ │Extended│ │ Full  │                  ║
+    ║    │  ✗   │  │Access │  │ Access │ │ Access │ │Access │                  ║
+    ║    └──────┘  └───────┘  └───────┘  └───────┘  └───────┘                  ║
+    ║                                                                           ║
+    ╚═══════════════════════════════════════════════════════════════════════════╝
+```
+
+</div>
 
 <br/>
 
@@ -358,38 +369,42 @@ Basic auth
 
 ## Architecture
 
-```mermaid
-flowchart LR
-    subgraph Client["🖥️ Client"]
-        direction TB
-        C1["Local Service<br/>localhost:8000"]
-    end
+<div align="center">
 
-    subgraph Features["⚡ Optimizations"]
-        direction TB
-        F1["LZ4 Compression"]
-        F2["Connection Pool"]
-        F3["Zero-copy Buffers"]
-        F4["uvloop (Linux)"]
-    end
-
-    subgraph Relay["🌐 Relay Server"]
-        direction TB
-        R1["TLS Termination"]
-        R2["Subdomain Routing"]
-        R3["Load Balancing"]
-    end
-
-    subgraph Internet["🌍 Internet"]
-        direction TB
-        I1["Public Users<br/>abc123.instanton.tech"]
-    end
-
-    C1 <-->|"QUIC/HTTP3<br/>(0-RTT, multiplexed)"| Relay
-    Relay <-->|"HTTPS<br/>(pooled)"| Internet
-
-    Features -.-> C1
 ```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                            INSTANTON ARCHITECTURE                               │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+  ┌───────────────────┐                                    ┌───────────────────┐
+  │   YOUR LOCAL APP  │                                    │  PUBLIC INTERNET  │
+  │                   │                                    │                   │
+  │  localhost:8000   │                                    │  Users worldwide  │
+  │  FastAPI/Flask    │                                    │  Webhooks (Stripe)│
+  │  Django/Express   │                                    │  Mobile apps      │
+  └─────────┬─────────┘                                    └─────────▲─────────┘
+            │                                                        │
+            │ HTTP                                              HTTPS│
+            ▼                                                        │
+  ┌───────────────────┐         QUIC/HTTP3            ┌──────────────┴──────────┐
+  │  INSTANTON CLIENT │◀═══════════════════════════════▶│   INSTANTON RELAY     │
+  │                   │      (0-RTT, multiplexed)      │                        │
+  │  • LZ4/Zstd       │                                │  • TLS 1.3 Termination │
+  │  • Connection Pool│                                │  • Subdomain Routing   │
+  │  • Zero-copy      │                                │  • Load Balancing (9)  │
+  │  • Auto-reconnect │                                │  • DDoS Protection     │
+  └───────────────────┘                                └────────────────────────┘
+
+  ┌─────────────────────────────────────────────────────────────────────────────┐
+  │                              DATA FLOW                                       │
+  │                                                                             │
+  │    User Request ──▶ abc123.instanton.tech ──▶ Relay ──▶ Client ──▶ App     │
+  │    App Response ◀── abc123.instanton.tech ◀── Relay ◀── Client ◀── App     │
+  │                                                                             │
+  └─────────────────────────────────────────────────────────────────────────────┘
+```
+
+</div>
 
 <br/>
 
@@ -518,16 +533,26 @@ tunnels:
 
 Instanton provides clear, actionable error messages:
 
-```mermaid
-flowchart TB
-    subgraph ErrorBox["⚠️ Error: CONNECTION_TIMEOUT"]
-        direction TB
-        E1["Connection to instanton.tech timed out after 30.0s."]
-        E2["Please check your network connection and server address."]
-    end
+<div align="center">
 
-    style ErrorBox fill:#fee2e2,stroke:#dc2626,color:#991b1b
 ```
+┌─────────────────────────────────────────────────────────────────────┐
+│  ⚠️  Error: CONNECTION_TIMEOUT                                      │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  Connection to instanton.tech timed out after 30.0s.                │
+│                                                                     │
+│  Please check your network connection and server address.           │
+│                                                                     │
+│  Suggestions:                                                       │
+│    • Verify your internet connection                                │
+│    • Check if the server address is correct                         │
+│    • Try increasing the timeout with --timeout 60                   │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+</div>
 
 Common error codes:
 - `CONNECTION_TIMEOUT` - Server not reachable
@@ -571,7 +596,7 @@ pytest tests/test_exceptions.py -v
 
 ## Contributing
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+We welcome contributions!
 
 ```bash
 # Fork and clone
@@ -616,8 +641,6 @@ git push origin feature/amazing-feature
 - [x] Comprehensive error handling
 - [ ] SAML authentication
 - [ ] Web dashboard
-- [ ] Terraform provider
-- [ ] VS Code extension
 
 <br/>
 

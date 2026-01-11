@@ -613,17 +613,34 @@ class TunnelClient:
         headers["Host"] = f"localhost:{self.local_port}"
 
         # Remove hop-by-hop headers that shouldn't be forwarded
+        # IMPORTANT: Preserve Connection: upgrade and Upgrade headers for WebSocket support
+        # This follows ngrok's pattern of forwarding upgrade headers
         hop_by_hop = {
-            "connection",
             "keep-alive",
             "proxy-authenticate",
             "proxy-authorization",
             "te",
             "trailers",
             "transfer-encoding",
-            "upgrade",
         }
-        request_headers = {k: v for k, v in headers.items() if k.lower() not in hop_by_hop}
+
+        # Check if this is a WebSocket upgrade request
+        connection_header = headers.get("Connection", "").lower()
+        upgrade_header = headers.get("Upgrade", "").lower()
+        is_websocket_upgrade = "upgrade" in connection_header and upgrade_header == "websocket"
+
+        request_headers = {}
+        for k, v in headers.items():
+            k_lower = k.lower()
+            # Skip standard hop-by-hop headers
+            if k_lower in hop_by_hop:
+                continue
+            # For WebSocket upgrades, preserve connection and upgrade headers
+            if k_lower in ("connection", "upgrade"):
+                if is_websocket_upgrade:
+                    request_headers[k] = v
+                continue
+            request_headers[k] = v
 
         # Fix Origin header if present - must match the Host for CORS/CSRF validation
         if "Origin" in request_headers:
