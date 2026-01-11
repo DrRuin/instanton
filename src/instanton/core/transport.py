@@ -32,6 +32,11 @@ logger = structlog.get_logger()
 _dns_cache: dict[str, tuple[str, float]] = {}
 _DNS_CACHE_TTL = 300.0  # 5 minutes
 
+# Sleep detection constants
+# If time.sleep(N) takes more than N + SLEEP_DETECTION_THRESHOLD seconds,
+# we assume the system was sleeping/suspended
+SLEEP_DETECTION_THRESHOLD = 5.0  # seconds
+
 
 async def resolve_host(host: str) -> str:
     """Resolve hostname to IP address with caching.
@@ -223,6 +228,7 @@ class WebSocketTransport(Transport):
 
         # Tasks
         self._heartbeat_task: asyncio.Task[Any] | None = None
+        self._sleep_monitor_task: asyncio.Task[Any] | None = None
         self._reconnect_lock = asyncio.Lock()
         # Track all background tasks for proper cleanup
         self._background_tasks: set[asyncio.Task[Any]] = set()
@@ -234,6 +240,10 @@ class WebSocketTransport(Transport):
 
         # Shutdown flag
         self._shutdown = False
+
+        # Sleep/wake detection
+        self._last_sleep_check = time.monotonic()
+        self._sleep_detected = False
 
     def on_connect(self, callback: Callable[[], Any]) -> None:
         """Register a callback for connection events."""
@@ -301,6 +311,9 @@ class WebSocketTransport(Transport):
             # Start heartbeat task
             self._start_heartbeat()
 
+            # Start sleep monitor task
+            self._start_sleep_monitor()
+
             # Fire connect callbacks
             await self._fire_callbacks(self._on_connect)
 
@@ -333,6 +346,95 @@ class WebSocketTransport(Transport):
         if self._heartbeat_task is not None:
             self._heartbeat_task.cancel()
             self._heartbeat_task = None
+
+    def _start_sleep_monitor(self) -> None:
+        """Start the sleep monitor task."""
+        if self._sleep_monitor_task is not None:
+            self._sleep_monitor_task.cancel()
+        self._last_sleep_check = time.monotonic()
+        self._sleep_detected = False
+        self._sleep_monitor_task = asyncio.create_task(self._sleep_monitor_loop())
+
+    def _stop_sleep_monitor(self) -> None:
+        """Stop the sleep monitor task."""
+        if self._sleep_monitor_task is not None:
+            self._sleep_monitor_task.cancel()
+            self._sleep_monitor_task = None
+
+    async def _sleep_monitor_loop(self) -> None:
+        """Monitor for system sleep/resume events.
+
+        This detects when the system resumes from sleep by checking if
+        time.sleep() takes significantly longer than expected (indicating
+        the system was suspended during the sleep).
+
+        When resume is detected, it immediately triggers a connection
+        health check and reconnection if needed.
+        """
+        check_interval = 2.0  # Check every 2 seconds
+
+        while not self._shutdown and self._state == ConnectionState.CONNECTED:
+            try:
+                before_sleep = time.monotonic()
+                await asyncio.sleep(check_interval)
+                after_sleep = time.monotonic()
+
+                if self._shutdown or self._state != ConnectionState.CONNECTED:
+                    break
+
+                elapsed = after_sleep - before_sleep
+
+                # If sleep took significantly longer than expected,
+                # system was likely suspended
+                if elapsed > check_interval + SLEEP_DETECTION_THRESHOLD:
+                    logger.info(
+                        "System resume detected",
+                        expected_sleep=check_interval,
+                        actual_elapsed=round(elapsed, 2),
+                        gap=round(elapsed - check_interval, 2),
+                    )
+                    self._sleep_detected = True
+
+                    # Trigger immediate connection health check
+                    # The connection is likely dead after resume
+                    await self._check_connection_after_resume()
+
+                self._last_sleep_check = after_sleep
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.warning("Sleep monitor error", error=str(e))
+                break
+
+    async def _check_connection_after_resume(self) -> None:
+        """Check connection health after system resume.
+
+        After resume from sleep, the WebSocket connection is likely dead
+        even though Python doesn't know it yet. We send an immediate ping
+        to verify, and if it fails, trigger reconnection.
+        """
+        if self._ws is None or self._state != ConnectionState.CONNECTED:
+            return
+
+        try:
+            # Send immediate ping with short timeout
+            pong_waiter = await self._ws.ping()
+            try:
+                # Use very short timeout - if connection is dead,
+                # we want to know immediately
+                await asyncio.wait_for(pong_waiter, timeout=3.0)
+                logger.info("Connection alive after resume")
+                self._sleep_detected = False
+            except TimeoutError:
+                logger.warning("Connection dead after resume, reconnecting")
+                await self._handle_disconnect()
+        except ConnectionClosed:
+            logger.warning("Connection closed during resume check")
+            await self._handle_disconnect()
+        except Exception as e:
+            logger.warning("Resume check failed", error=str(e))
+            await self._handle_disconnect()
 
     async def _heartbeat_loop(self) -> None:
         """Send periodic heartbeat pings."""
@@ -380,6 +482,7 @@ class WebSocketTransport(Transport):
 
             self._state = ConnectionState.DISCONNECTED
             self._stop_heartbeat()
+            self._stop_sleep_monitor()
 
             # Fire disconnect callbacks
             await self._fire_callbacks(self._on_disconnect)
@@ -467,6 +570,9 @@ class WebSocketTransport(Transport):
                 # Start heartbeat
                 self._start_heartbeat()
 
+                # Start sleep monitor
+                self._start_sleep_monitor()
+
                 # Fire reconnect callbacks
                 await self._fire_callbacks(self._on_reconnect)
 
@@ -542,6 +648,7 @@ class WebSocketTransport(Transport):
         """Close WebSocket connection gracefully."""
         self._shutdown = True
         self._stop_heartbeat()
+        self._stop_sleep_monitor()
 
         # Cancel all background tasks
         for task in list(self._background_tasks):

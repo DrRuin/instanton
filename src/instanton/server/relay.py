@@ -56,6 +56,25 @@ class TunnelConnection:
 
 
 @dataclass
+class SubdomainReservation:
+    """Reserved subdomain for reconnecting clients.
+
+    When a client disconnects (e.g., laptop lid closed), the subdomain
+    is reserved for a grace period to allow the client to reconnect
+    and reclaim the same URL.
+    """
+
+    subdomain: str
+    tunnel_id: UUID
+    local_port: int
+    reserved_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    # Statistics from before disconnect (preserved for continuity)
+    request_count: int = 0
+    bytes_sent: int = 0
+    bytes_received: int = 0
+
+
+@dataclass
 class RequestContext:
     """Context for an in-flight HTTP request."""
 
@@ -67,6 +86,12 @@ class RequestContext:
 
 class RelayServer:
     """Relay server that manages tunnel connections with TLS support."""
+
+    # Default grace period for subdomain reservations (30 minutes)
+    # This allows clients to reconnect after laptop lid close, network blips,
+    # or extended periods of system sleep/suspend
+    # Can be overridden via config.subdomain_grace_period
+    DEFAULT_SUBDOMAIN_GRACE_PERIOD = 1800.0  # 30 minutes in seconds
 
     def __init__(self, config: ServerConfig):
         self.config = config
@@ -90,6 +115,16 @@ class RelayServer:
         self._chunk_assembler = ChunkAssembler()
         # Map stream_id -> (request_id, status, headers) for chunked responses
         self._chunk_streams: dict[UUID, tuple[UUID, int, dict[str, str]]] = {}
+        # Subdomain reservations for disconnected clients
+        # Allows clients to reconnect and reclaim the same subdomain
+        self._reservations: dict[str, SubdomainReservation] = {}
+
+    @property
+    def subdomain_grace_period(self) -> float:
+        """Get the subdomain grace period from config or use default."""
+        return getattr(
+            self.config, "subdomain_grace_period", self.DEFAULT_SUBDOMAIN_GRACE_PERIOD
+        )
 
     def _create_ssl_context(self) -> ssl.SSLContext | None:
         """Create SSL context from certificate files."""
@@ -223,6 +258,7 @@ class RelayServer:
         self._pending_requests.clear()
         self._tcp_tunnels.clear()
         self._udp_tunnels.clear()
+        self._reservations.clear()
 
         logger.info("Relay server stopped")
 
@@ -238,7 +274,7 @@ class RelayServer:
                 logger.error("Cleanup error", error=str(e))
 
     async def _cleanup_idle_tunnels(self) -> None:
-        """Remove tunnels that have been idle too long and stale pending requests."""
+        """Remove tunnels that have been idle too long, expired reservations, and stale requests."""
         now = datetime.now(UTC)
         idle_threshold = self.config.idle_timeout
         current_time = time.time()
@@ -256,6 +292,22 @@ class RelayServer:
                     await tunnel.websocket.close()
                 self._tunnels.pop(subdomain, None)
                 self._tunnel_by_id.pop(tunnel.id, None)
+
+        # Clean up expired subdomain reservations
+        expired_reservations = [
+            subdomain
+            for subdomain, reservation in self._reservations.items()
+            if (now - reservation.reserved_at).total_seconds() > self.subdomain_grace_period
+        ]
+        for subdomain in expired_reservations:
+            reservation = self._reservations.pop(subdomain, None)
+            if reservation:
+                logger.info(
+                    "Subdomain reservation expired",
+                    subdomain=subdomain,
+                    tunnel_id=str(reservation.tunnel_id),
+                    grace_period=self.subdomain_grace_period,
+                )
 
         # Clean up stale pending requests (older than request_timeout + 30s buffer)
         # Only cleanup if timeout is configured (not indefinite)
@@ -298,13 +350,28 @@ class RelayServer:
                 }
             )
 
+        # Build reservations info
+        reservations_info = []
+        for subdomain, reservation in self._reservations.items():
+            reservations_info.append(
+                {
+                    "subdomain": subdomain,
+                    "tunnel_id": str(reservation.tunnel_id),
+                    "reserved_at": reservation.reserved_at.isoformat(),
+                    "local_port": reservation.local_port,
+                }
+            )
+
         return web.json_response(
             {
                 "total_tunnels": len(self._tunnels),
                 "total_tcp_tunnels": len(self._tcp_tunnels),
                 "total_udp_tunnels": len(self._udp_tunnels),
+                "total_reservations": len(self._reservations),
                 "max_tunnels": self.config.max_tunnels,
+                "subdomain_grace_period": self.subdomain_grace_period,
                 "tunnels": tunnels_info,
+                "reservations": reservations_info,
             }
         )
 
@@ -373,6 +440,8 @@ class RelayServer:
 
             # Assign subdomain
             subdomain = connect_req.subdomain or ""
+            reclaimed_reservation: SubdomainReservation | None = None
+
             if subdomain:
                 # Validate subdomain
                 if not self._is_valid_subdomain(subdomain):
@@ -385,6 +454,7 @@ class RelayServer:
                     await ws.close()
                     return ws
 
+                # Check if subdomain is currently active
                 if subdomain in self._tunnels:
                     response = ConnectResponse(
                         type="error",
@@ -394,6 +464,20 @@ class RelayServer:
                     await ws.send_bytes(encode_message(response))
                     await ws.close()
                     return ws
+
+                # Check if subdomain is reserved (client reconnecting)
+                if subdomain in self._reservations:
+                    reservation = self._reservations[subdomain]
+                    # Allow reclaim - remove reservation and use the same tunnel_id
+                    # This preserves the client's subdomain after reconnect
+                    reclaimed_reservation = self._reservations.pop(subdomain)
+                    tunnel_id = reclaimed_reservation.tunnel_id
+                    logger.info(
+                        "Client reclaiming reserved subdomain",
+                        subdomain=subdomain,
+                        tunnel_id=str(tunnel_id),
+                        reserved_for=(datetime.now(UTC) - reservation.reserved_at).total_seconds(),
+                    )
             else:
                 # Generate unique random subdomain using more entropy
                 # Use 6 bytes (12 hex chars) for better uniqueness
@@ -407,7 +491,7 @@ class RelayServer:
                         subdomain = f"{str(tunnel_id)[:8]}{secrets.token_hex(2)}"
                         break
 
-            # Use the tunnel_id generated at start of connection handler
+            # Use the tunnel_id (either from reclaimed reservation or generated at start)
             url = f"https://{subdomain}.{self.config.base_domain}"
 
             tunnel = TunnelConnection(
@@ -418,6 +502,12 @@ class RelayServer:
                 compression=compression,
                 negotiator=negotiator,
             )
+
+            # Restore stats from reclaimed reservation (preserves continuity)
+            if reclaimed_reservation:
+                tunnel.request_count = reclaimed_reservation.request_count
+                tunnel.bytes_sent = reclaimed_reservation.bytes_sent
+                tunnel.bytes_received = reclaimed_reservation.bytes_received
 
             self._tunnels[subdomain] = tunnel
             self._tunnel_by_id[tunnel_id] = tunnel
@@ -459,10 +549,30 @@ class RelayServer:
         finally:
             # Cleanup
             self._websockets.discard(ws)
-            if subdomain and subdomain in self._tunnels:
-                del self._tunnels[subdomain]
-            if tunnel_id and tunnel_id in self._tunnel_by_id:
+
+            # Get tunnel reference before removing from active tunnels
+            disconnected_tunnel = self._tunnels.pop(subdomain, None) if subdomain else None
+            if tunnel_id in self._tunnel_by_id:
                 del self._tunnel_by_id[tunnel_id]
+
+            # Create reservation for reconnection if tunnel was established
+            # This allows clients to reclaim their subdomain after laptop lid close, etc.
+            if disconnected_tunnel and subdomain:
+                reservation = SubdomainReservation(
+                    subdomain=subdomain,
+                    tunnel_id=tunnel_id,
+                    local_port=disconnected_tunnel.local_port,
+                    request_count=disconnected_tunnel.request_count,
+                    bytes_sent=disconnected_tunnel.bytes_sent,
+                    bytes_received=disconnected_tunnel.bytes_received,
+                )
+                self._reservations[subdomain] = reservation
+                logger.info(
+                    "Subdomain reserved for reconnection",
+                    subdomain=subdomain,
+                    tunnel_id=str(tunnel_id),
+                    grace_period=self.subdomain_grace_period,
+                )
 
             # Cancel any pending requests for this tunnel
             if tunnel:
@@ -528,6 +638,19 @@ class RelayServer:
                     self._chunk_assembler.add_chunk(chunk_data)
                 except ValueError as e:
                     logger.warning("Chunk error", error=str(e))
+                    # If chunk failed, abort the stream and send error response
+                    stream_info = self._chunk_streams.pop(chunk_data.stream_id, None)
+                    if stream_info:
+                        request_id, _status, _headers = stream_info
+                        ctx = self._pending_requests.get(request_id)
+                        if ctx and not ctx.future.done():
+                            error_response = HttpResponse(
+                                request_id=request_id,
+                                status=500,
+                                headers={"Content-Type": "text/plain"},
+                                body=f"Chunk transfer error: {e}".encode(),
+                            )
+                            ctx.future.set_result(error_response)
 
             elif msg_type == "chunk_end":
                 # End of chunked response - assemble and deliver
@@ -537,11 +660,19 @@ class RelayServer:
                     request_id, status, headers = stream_info
                     try:
                         body = self._chunk_assembler.end_stream(chunk_end)
+                        # Fix headers - remove Content-Length as we'll set it correctly
+                        # Also remove Transfer-Encoding as we're sending the full body
+                        # Ensure all values are strings for aiohttp compatibility
+                        clean_headers = {
+                            k: str(v) if not isinstance(v, str) else v
+                            for k, v in headers.items()
+                            if k.lower() not in ("content-length", "transfer-encoding")
+                        }
                         # Create response and deliver to pending request
                         response = HttpResponse(
                             request_id=request_id,
                             status=status,
-                            headers=headers,
+                            headers=clean_headers,
                             body=body,
                         )
                         ctx = self._pending_requests.get(request_id)
@@ -556,6 +687,16 @@ class RelayServer:
                         )
                     except ValueError as e:
                         logger.error("Chunk assembly error", error=str(e))
+                        # Send error response so request doesn't hang
+                        ctx = self._pending_requests.get(request_id)
+                        if ctx and not ctx.future.done():
+                            error_response = HttpResponse(
+                                request_id=request_id,
+                                status=500,
+                                headers={"Content-Type": "text/plain"},
+                                body=f"Chunk assembly error: {e}".encode(),
+                            )
+                            ctx.future.set_result(error_response)
                 else:
                     logger.warning(
                         "Chunk end for unknown stream",
@@ -598,6 +739,23 @@ class RelayServer:
         # Find tunnel
         tunnel = self._tunnels.get(subdomain)
         if not tunnel:
+            # Check if subdomain is reserved (client disconnected, may reconnect)
+            if subdomain in self._reservations:
+                reservation = self._reservations[subdomain]
+                reserved_seconds = (datetime.now(UTC) - reservation.reserved_at).total_seconds()
+                remaining_seconds = max(0, self.subdomain_grace_period - reserved_seconds)
+                remaining_int = int(remaining_seconds)
+                return web.Response(
+                    text=(
+                        f"Service temporarily unavailable\n\n"
+                        f"The tunnel client for '{subdomain}' has disconnected.\n"
+                        f"Waiting for reconnection (up to {remaining_int} seconds remaining).\n\n"
+                        f"If you are the tunnel owner, please check your client application."
+                    ),
+                    status=503,  # Service Unavailable
+                    content_type="text/plain",
+                    headers={"Retry-After": str(int(min(30, remaining_seconds)))},
+                )
             return web.Response(
                 text=f"Tunnel not found: {subdomain}",
                 status=404,
@@ -693,14 +851,20 @@ class RelayServer:
             response_headers = {}
             for key, value in response.headers.items():
                 key_lower = key.lower()
+                # Skip hop-by-hop headers
                 if key_lower in hop_by_hop:
+                    continue
+                # Skip content-length as we'll let aiohttp set it correctly
+                # This prevents mismatches when body size differs from original
+                if key_lower == "content-length":
                     continue
                 # For WebSocket responses, preserve connection and upgrade headers
                 if key_lower in ("connection", "upgrade"):
                     if is_websocket_response:
-                        response_headers[key] = value
+                        response_headers[key] = str(value)
                     continue
-                response_headers[key] = value
+                # Ensure value is a string (handle potential bytes/other types)
+                response_headers[key] = str(value) if not isinstance(value, str) else value
 
             # Always set Connection header for proper HTTP/1.1 behavior
             # This prevents browsers from hanging while waiting for connection state

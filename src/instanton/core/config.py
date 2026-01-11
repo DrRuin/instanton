@@ -220,5 +220,12 @@ class ServerConfig(BaseModel):
         default=120.0,
         description="Timeout in seconds for HTTP requests. None or 0 for indefinite.",
     )
+    # Subdomain reservation grace period: how long to hold a subdomain after client disconnects.
+    # This allows clients to reconnect (e.g., after laptop lid close) and reclaim the same URL.
+    # Default 30 minutes (1800s) covers most real-world scenarios.
+    subdomain_grace_period: float = Field(
+        default=1800.0,
+        description="Grace period in seconds to reserve subdomain after client disconnect.",
+    )
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
