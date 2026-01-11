@@ -20,7 +20,7 @@ For more control, use the TunnelClient directly:
     url = await client.connect()
 """
 
-__version__ = "0.7.0"
+__version__ = "0.7.5"
 
 # SDK exports map for lazy loading
 _SDK_EXPORTS = {
