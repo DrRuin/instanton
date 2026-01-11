@@ -510,7 +510,7 @@ class RelayServer:
                 error=str(e),
             )
 
-    async def _handle_http_request(self, request: web.Request) -> web.Response:
+    async def _handle_http_request(self, request: web.Request) -> web.StreamResponse:
         """Handle incoming HTTP request and route to tunnel."""
         host = request.host.split(":")[0]
 

@@ -31,7 +31,7 @@ import httpx
 import structlog
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec, rsa
+from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, ed448, rsa
 from cryptography.x509.oid import ExtensionOID, NameOID
 
 logger = structlog.get_logger()
@@ -583,7 +583,14 @@ class CertificateGenerator:
         """
         csr = x509.load_pem_x509_csr(csr_pem)
         ca_cert = x509.load_pem_x509_certificate(ca_cert_pem)
-        ca_key = serialization.load_pem_private_key(ca_key_pem, password=None)
+        ca_key_raw = serialization.load_pem_private_key(ca_key_pem, password=None)
+        # Type narrow to supported key types for signing
+        if not isinstance(
+            ca_key_raw,
+            (rsa.RSAPrivateKey, ec.EllipticCurvePrivateKey, ed25519.Ed25519PrivateKey, ed448.Ed448PrivateKey, dsa.DSAPrivateKey),
+        ):
+            raise ValueError(f"Unsupported CA key type: {type(ca_key_raw)}")
+        ca_key = ca_key_raw
 
         now = datetime.now(UTC)
 
@@ -603,10 +610,16 @@ class CertificateGenerator:
             builder = builder.add_extension(ext.value, ext.critical)
 
         # Add Authority Key Identifier
-        builder = builder.add_extension(
-            x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()),
-            critical=False,
-        )
+        ca_public_key = ca_key.public_key()
+        # Type narrow for AuthorityKeyIdentifier (accepts fewer types than sign)
+        if isinstance(
+            ca_public_key,
+            (rsa.RSAPublicKey, ec.EllipticCurvePublicKey, ed25519.Ed25519PublicKey, ed448.Ed448PublicKey, dsa.DSAPublicKey),
+        ):
+            builder = builder.add_extension(
+                x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_public_key),
+                critical=False,
+            )
 
         cert = builder.sign(ca_key, hashes.SHA256())
         return cert.public_bytes(serialization.Encoding.PEM)
@@ -624,10 +637,12 @@ class CertificateGenerator:
         cert = x509.load_pem_x509_certificate(cert_pem)
 
         # Extract SANs
-        san_domains = []
+        san_domains: list[str] = []
         try:
             san_ext = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
-            san_domains = [name.value for name in san_ext.value if isinstance(name, x509.DNSName)]
+            san_value = san_ext.value
+            if isinstance(san_value, x509.SubjectAlternativeName):
+                san_domains = [name.value for name in san_value if isinstance(name, x509.DNSName)]
         except x509.ExtensionNotFound:
             pass
 
@@ -1289,6 +1304,10 @@ class InstantonDomainManager:
         Returns:
             Certificate bundle
         """
+        # Validate CA cert and key are present
+        if config.custom_ca_cert is None or config.custom_ca_key is None:
+            raise ValueError("Custom CA certificate and key are required")
+
         # Generate key
         key = CertificateGenerator.generate_private_key(KeyType.EC_P256)
         key_pem = CertificateGenerator.key_to_pem(key)

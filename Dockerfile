@@ -6,6 +6,9 @@
 # Stage 1: Build dependencies
 FROM python:3.11-slim AS builder
 
+# Suppress debconf warnings during apt-get
+ENV DEBIAN_FRONTEND=noninteractive
+
 WORKDIR /app
 
 # Install build dependencies

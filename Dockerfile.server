@@ -6,6 +6,9 @@
 # Stage 1: Build dependencies
 FROM python:3.11-slim AS builder
 
+# Suppress debconf warnings during apt-get
+ENV DEBIAN_FRONTEND=noninteractive
+
 WORKDIR /app
 
 # Install build dependencies
@@ -25,6 +28,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 # Stage 2: Production image
 FROM python:3.11-slim AS production
+
+# Suppress debconf warnings during apt-get
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Labels
 LABEL org.opencontainers.image.title="Instanton Server"

@@ -190,17 +190,17 @@ def _get_jwk(private_key: ec.EllipticCurvePrivateKey | rsa.RSAPrivateKey) -> dic
             "y": _b64url_encode(public_numbers.y.to_bytes(coord_size, "big")),
         }
     elif isinstance(private_key, rsa.RSAPrivateKey):
-        public_key = private_key.public_key()
-        public_numbers = public_key.public_numbers()
+        rsa_public_key = private_key.public_key()
+        rsa_public_numbers = rsa_public_key.public_numbers()
 
         # Calculate byte sizes
-        n_bytes = (public_numbers.n.bit_length() + 7) // 8
-        e_bytes = (public_numbers.e.bit_length() + 7) // 8
+        n_bytes = (rsa_public_numbers.n.bit_length() + 7) // 8
+        e_bytes = (rsa_public_numbers.e.bit_length() + 7) // 8
 
         return {
             "kty": "RSA",
-            "n": _b64url_encode(public_numbers.n.to_bytes(n_bytes, "big")),
-            "e": _b64url_encode(public_numbers.e.to_bytes(e_bytes, "big")),
+            "n": _b64url_encode(rsa_public_numbers.n.to_bytes(n_bytes, "big")),
+            "e": _b64url_encode(rsa_public_numbers.e.to_bytes(e_bytes, "big")),
         }
     else:
         raise ValueError(f"Unsupported key type: {type(private_key)}")
@@ -1361,7 +1361,7 @@ class CaddyManager:
         Returns:
             True if configuration was successful
         """
-        caddy_config = {
+        caddy_config: dict[str, Any] = {
             "apps": {
                 "http": {
                     "servers": {
