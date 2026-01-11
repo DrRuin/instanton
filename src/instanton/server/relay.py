@@ -122,9 +122,7 @@ class RelayServer:
     @property
     def subdomain_grace_period(self) -> float:
         """Get the subdomain grace period from config or use default."""
-        return getattr(
-            self.config, "subdomain_grace_period", self.DEFAULT_SUBDOMAIN_GRACE_PERIOD
-        )
+        return getattr(self.config, "subdomain_grace_period", self.DEFAULT_SUBDOMAIN_GRACE_PERIOD)
 
     def _create_ssl_context(self) -> ssl.SSLContext | None:
         """Create SSL context from certificate files."""
