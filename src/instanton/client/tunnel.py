@@ -286,10 +286,15 @@ class TunnelClient:
             max_connections=self.proxy_config.max_connections,
             max_keepalive_connections=self.proxy_config.max_keepalive,
         )
+        # IMPORTANT: Do NOT follow redirects internally!
+        # Redirects must be returned to the browser so it can:
+        # 1. Process Set-Cookie headers from the redirect response
+        # 2. Follow the redirect itself with the correct cookies
+        # This is critical for login flows (POST -> 302 -> GET with session cookie)
         return httpx.AsyncClient(
             timeout=timeout,
             limits=limits,
-            follow_redirects=True,
+            follow_redirects=False,
         )
 
     async def connect(self) -> str:
