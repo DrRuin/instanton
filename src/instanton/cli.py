@@ -149,6 +149,11 @@ def _run_tunnel_with_signal_handling(
     global _shutdown_requested
     _shutdown_requested = False
 
+    # Use selector event loop on Windows to fix WebSocket connection issues
+    # The default ProactorEventLoop on Windows has issues with some SSL/WebSocket operations
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 

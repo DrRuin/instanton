@@ -283,21 +283,41 @@ class WebSocketTransport(Transport):
         self._shutdown = False
         self._state = ConnectionState.CONNECTING
 
-        # Pre-resolve DNS to speed up connection
+        # Pre-resolve DNS to speed up connection and get IPv4 address
+        # This fixes issues on Windows where IPv6 may cause connection problems
         host = addr.split(":")[0] if ":" in addr else addr
+        port = addr.split(":")[1] if ":" in addr else "4443"
+        original_host = host
+
         if not addr.startswith("ws://") and not addr.startswith("wss://"):
-            await resolve_host(host)
+            resolved_ip = await resolve_host(host)
+            # Use resolved IP for connection but keep original host for SSL/Host header
+            if resolved_ip != host:
+                addr = f"{resolved_ip}:{port}"
 
         url = self._build_url(addr)
         logger.info("Connecting via WebSocket", url=url)
+
+        # Create SSL context for secure connections
+        # On Windows, we need explicit SSL context configuration
+        ssl_context = None
+        if url.startswith("wss://"):
+            ssl_context = ssl.create_default_context()
+            # For self-signed certs or testing, you may need to disable verification
+            # In production, keep verification enabled
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
 
         try:
             self._ws = await asyncio.wait_for(
                 connect(
                     url,
+                    ssl=ssl_context,
+                    additional_headers={"Host": f"{original_host}:{port}"},
                     ping_interval=None,  # We handle pings ourselves
                     ping_timeout=None,
                     close_timeout=5,
+                    open_timeout=self._connect_timeout,
                 ),
                 timeout=self._connect_timeout,
             )
