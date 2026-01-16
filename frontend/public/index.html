@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenAI Stream Chat</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 800px;
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 20px;
+      padding: 30px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    h1 {
+      color: #fff;
+      text-align: center;
+      margin-bottom: 30px;
+      font-size: 2rem;
+    }
+
+    .input-group {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+
+    #messageInput {
+      flex: 1;
+      padding: 15px 20px;
+      border: none;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      font-size: 1rem;
+      outline: none;
+      transition: background 0.3s;
+    }
+
+    #messageInput:focus {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    #messageInput::placeholder {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    #sendBtn {
+      padding: 15px 30px;
+      border: none;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    #sendBtn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+    }
+
+    #sendBtn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .response-area {
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 12px;
+      padding: 20px;
+      min-height: 300px;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+
+    #response {
+      color: #e0e0e0;
+      line-height: 1.8;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .status {
+      text-align: center;
+      margin-top: 15px;
+      color: rgba(255, 255, 255, 0.5);
+      font-size: 0.9rem;
+    }
+
+    .streaming {
+      color: #667eea;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .streaming::after {
+      content: '...';
+      animation: pulse 1.5s infinite;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>OpenAI Stream Chat</h1>
+
+    <div class="input-group">
+      <input
+        type="text"
+        id="messageInput"
+        placeholder="Type your message here..."
+        autocomplete="off"
+      >
+      <button id="sendBtn">Send</button>
+    </div>
+
+    <div class="response-area">
+      <div id="response"></div>
+    </div>
+
+    <div class="status" id="status"></div>
+  </div>
+
+  <script>
+    const API_URL = "";
+    const messageInput = document.getElementById("messageInput");
+    const sendBtn = document.getElementById("sendBtn");
+    const responseDiv = document.getElementById("response");
+    const statusDiv = document.getElementById("status");
+
+    async function sendMessage() {
+      const message = messageInput.value.trim();
+      if (!message) return;
+
+      sendBtn.disabled = true;
+      responseDiv.textContent = "";
+      statusDiv.textContent = "Streaming";
+      statusDiv.className = "status streaming";
+
+      try {
+        const response = await fetch(`${API_URL}/api/stream`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ message }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const text = decoder.decode(value, { stream: true });
+          const lines = text.split("\n");
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const data = line.slice(6);
+              if (data === "[DONE]") {
+                statusDiv.textContent = "Complete";
+                statusDiv.className = "status";
+              } else if (data.startsWith("Error:")) {
+                responseDiv.textContent += `\n${data}`;
+                statusDiv.textContent = "Error";
+                statusDiv.className = "status";
+              } else {
+                responseDiv.textContent += data;
+              }
+            }
+          }
+        }
+      } catch (error) {
+        responseDiv.textContent = `Error: ${error.message}`;
+        statusDiv.textContent = "Connection failed";
+        statusDiv.className = "status";
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+
+    sendBtn.addEventListener("click", sendMessage);
+    messageInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") sendMessage();
+    });
+  </script>
+</body>
+</html>

@@ -53,6 +53,34 @@ services:
       - instanton-network
 
   # -------------------------------------------------------------------------
+  # Instanton Dashboard (Web UI)
+  # -------------------------------------------------------------------------
+  instanton-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: instanton-dashboard
+    ports:
+      - "4040:4040"    # Dashboard web UI
+    environment:
+      - INSTANTON_DASHBOARD_MODE=${INSTANTON_DASHBOARD_MODE:-local}
+      - INSTANTON_DASHBOARD_HOST=0.0.0.0
+      - INSTANTON_DASHBOARD_PORT=4040
+      - INSTANTON_DATABASE_URL=${INSTANTON_DATABASE_URL:-sqlite:///data/instanton.db}
+      - INSTANTON_ANTIABUSE_ENABLED=${INSTANTON_ANTIABUSE_ENABLED:-false}
+    volumes:
+      - dashboard-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4040/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - instanton-network
+
+  # -------------------------------------------------------------------------
   # Instanton Client (Example - connects to server)
   # -------------------------------------------------------------------------
   instanton-client:
@@ -137,6 +165,8 @@ networks:
 # Volumes
 volumes:
   instanton-data:
+    driver: local
+  dashboard-data:
     driver: local
   prometheus-data:
     driver: local

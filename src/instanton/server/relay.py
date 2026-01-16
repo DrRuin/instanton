@@ -32,6 +32,11 @@ from instanton.protocol.messages import (
     NegotiateRequest,
     Pong,
     ProtocolNegotiator,
+    WebSocketClose,
+    WebSocketFrame,
+    WebSocketOpcode,
+    WebSocketUpgrade,
+    WebSocketUpgradeResponse,
     decode_message,
     encode_message,
 )
@@ -85,6 +90,13 @@ class RequestContext:
     tunnel: TunnelConnection
     future: asyncio.Future
     created_at: float = field(default_factory=time.time)
+    # SSE streaming support
+    http_request: web.Request | None = None
+    stream_response: web.StreamResponse | None = None
+    is_sse_stream: bool = False
+    sse_complete: asyncio.Event | None = None
+    # SSE heartbeat task for keeping connection alive
+    heartbeat_task: asyncio.Task | None = None
 
 
 class RelayServer:
@@ -118,6 +130,8 @@ class RelayServer:
         self._chunk_assembler = ChunkAssembler()
         # Map stream_id -> (created_at, request_id, status, headers) for chunked responses
         self._chunk_streams: dict[UUID, tuple[float, UUID, int, dict[str, str]]] = {}
+        # Active WebSocket proxy connections (tunnel_id -> browser WebSocket)
+        self._ws_proxies: dict[UUID, web.WebSocketResponse] = {}
         # Subdomain reservations for disconnected clients
         # Allows clients to reconnect and reclaim the same subdomain
         self._reservations: dict[str, SubdomainReservation] = {}
@@ -627,6 +641,62 @@ class RelayServer:
             return False
         return all(c.isalnum() or c == "-" for c in subdomain)
 
+    async def _prepare_sse_stream(self, ctx: RequestContext, stream_id: UUID) -> None:
+        """Prepare SSE StreamResponse for immediate streaming."""
+        try:
+            if ctx.stream_response and ctx.http_request:
+                await ctx.stream_response.prepare(ctx.http_request)
+
+                # Start heartbeat task to keep SSE connection alive
+                ctx.heartbeat_task = asyncio.create_task(
+                    self._sse_heartbeat_loop(ctx)
+                )
+
+                logger.debug(
+                    "SSE stream prepared with heartbeat",
+                    stream_id=str(stream_id),
+                    request_id=str(ctx.request_id),
+                )
+        except Exception as e:
+            logger.error("Failed to prepare SSE stream", error=str(e))
+            # Signal completion on error so request doesn't hang
+            if ctx.sse_complete:
+                ctx.sse_complete.set()
+
+    async def _sse_heartbeat_loop(self, ctx: RequestContext) -> None:
+        """Send periodic heartbeat comments to keep SSE connection alive.
+
+        SSE protocol allows comment lines starting with ':' which are ignored
+        by clients but keep the connection from timing out.
+        """
+        heartbeat_interval = 15.0  # Send heartbeat every 15 seconds
+
+        try:
+            while ctx.stream_response and not ctx.sse_complete.is_set():
+                # Wait for either heartbeat interval or stream completion
+                try:
+                    await asyncio.wait_for(
+                        ctx.sse_complete.wait(),
+                        timeout=heartbeat_interval,
+                    )
+                    # Stream completed, exit loop
+                    break
+                except TimeoutError:
+                    # Timeout = send heartbeat
+                    pass
+
+                # Send heartbeat comment
+                if ctx.stream_response:
+                    try:
+                        await ctx.stream_response.write(b":heartbeat\n\n")
+                    except Exception:
+                        # Connection lost, exit
+                        break
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.debug("SSE heartbeat loop ended", error=str(e))
+
     async def _handle_tunnel_message(self, tunnel: TunnelConnection, data: bytes) -> None:
         """Handle message from tunnel client."""
         try:
@@ -642,12 +712,86 @@ class RelayServer:
             elif msg_type == "chunk_start":
                 # Start of chunked response - register the stream
                 chunk_start = ChunkStart(**msg)
-                self._chunk_assembler.start_stream(chunk_start)
-                # Store mapping from stream_id to (request_id, status, headers)
-                # We'll need these to construct the HttpResponse when complete
                 headers = chunk_start.headers.copy() if chunk_start.headers else {}
                 if "Content-Type" not in headers:
                     headers["Content-Type"] = chunk_start.content_type
+
+                # Check if this is a streaming response - forward immediately
+                content_type = headers.get("Content-Type", "").lower()
+
+                # Event-based streaming content types
+                is_event_stream = (
+                    "text/event-stream" in content_type  # SSE
+                    or "application/x-ndjson" in content_type  # NDJSON
+                    or "application/stream+json" in content_type  # Stream JSON
+                    or "application/jsonl" in content_type  # JSON Lines
+                )
+
+                # gRPC streaming (binary framed protocol)
+                is_grpc_stream = (
+                    "application/grpc" in content_type  # gRPC
+                    or "application/grpc+proto" in content_type  # gRPC protobuf
+                    or "application/grpc-web" in content_type  # gRPC-Web
+                )
+
+                # Multipart streaming (MJPEG cameras, mixed content)
+                is_multipart_stream = (
+                    "multipart/x-mixed-replace" in content_type  # MJPEG
+                    or "multipart/mixed" in content_type  # Mixed streams
+                )
+
+                # Media streaming (video/audio)
+                is_media_stream = (
+                    content_type.startswith("video/")  # Video streams
+                    or content_type.startswith("audio/")  # Audio streams
+                )
+
+                # Binary streaming
+                is_binary_stream = "application/octet-stream" in content_type
+
+                # Combine all streaming detection
+                is_streaming_type = (
+                    is_event_stream
+                    or is_grpc_stream
+                    or is_multipart_stream
+                    or is_media_stream
+                    or is_binary_stream
+                )
+
+                ctx = self._pending_requests.get(chunk_start.request_id)
+
+                if is_streaming_type and ctx and ctx.http_request:
+                    # SSE streaming - prepare StreamResponse immediately
+                    ctx.is_sse_stream = True
+                    stream_headers = {
+                        k: str(v) if not isinstance(v, str) else v
+                        for k, v in headers.items()
+                        if k.lower() not in ("content-length", "transfer-encoding")
+                    }
+                    stream_headers["Cache-Control"] = "no-cache, no-transform"
+                    stream_headers["Connection"] = "keep-alive"
+                    stream_headers["X-Accel-Buffering"] = "no"
+
+                    ctx.stream_response = web.StreamResponse(
+                        status=chunk_start.status,
+                        headers=stream_headers,
+                    )
+                    # Enable chunked encoding for streaming
+                    ctx.stream_response.enable_chunked_encoding()
+                    # Prepare must be awaited - schedule as task
+                    asyncio.create_task(
+                        self._prepare_sse_stream(ctx, chunk_start.stream_id)
+                    )
+                    logger.debug(
+                        "SSE stream started",
+                        stream_id=str(chunk_start.stream_id),
+                        request_id=str(chunk_start.request_id),
+                    )
+                else:
+                    # Regular chunked response - buffer and assemble
+                    self._chunk_assembler.start_stream(chunk_start)
+
+                # Store mapping from stream_id to (created_at, request_id, status, headers)
                 self._chunk_streams[chunk_start.stream_id] = (
                     time.time(),
                     chunk_start.request_id,
@@ -660,74 +804,100 @@ class RelayServer:
                     request_id=str(chunk_start.request_id),
                     total_size=chunk_start.total_size,
                     status=chunk_start.status,
+                    is_streaming=is_streaming_type,
                 )
 
             elif msg_type == "chunk_data":
-                # Chunk data - add to assembler
+                # Chunk data - add to assembler or stream immediately for SSE
                 chunk_data = ChunkData(**msg)
-                try:
-                    self._chunk_assembler.add_chunk(chunk_data)
-                except ValueError as e:
-                    logger.warning("Chunk error", error=str(e))
-                    # If chunk failed, abort the stream and send error response
-                    stream_info = self._chunk_streams.pop(chunk_data.stream_id, None)
-                    if stream_info:
-                        _created, request_id, _status, _headers = stream_info
-                        ctx = self._pending_requests.get(request_id)
-                        if ctx and not ctx.future.done():
-                            error_response = HttpResponse(
-                                request_id=request_id,
-                                status=500,
-                                headers={"Content-Type": "text/plain"},
-                                body=f"Chunk transfer error: {e}".encode(),
-                            )
-                            ctx.future.set_result(error_response)
+                stream_info = self._chunk_streams.get(chunk_data.stream_id)
+
+                if stream_info:
+                    _created, request_id, _status, _headers = stream_info
+                    ctx = self._pending_requests.get(request_id)
+
+                    # Check if this is an SSE stream - write immediately
+                    if ctx and ctx.is_sse_stream and ctx.stream_response:
+                        try:
+                            await ctx.stream_response.write(chunk_data.data)
+                        except Exception as e:
+                            logger.warning("SSE write error", error=str(e))
+                    else:
+                        # Regular chunked response - buffer
+                        try:
+                            self._chunk_assembler.add_chunk(chunk_data)
+                        except ValueError as e:
+                            logger.warning("Chunk error", error=str(e))
+                            self._chunk_streams.pop(chunk_data.stream_id, None)
+                            if ctx and not ctx.future.done():
+                                error_response = HttpResponse(
+                                    request_id=request_id,
+                                    status=500,
+                                    headers={"Content-Type": "text/plain"},
+                                    body=f"Chunk transfer error: {e}".encode(),
+                                )
+                                ctx.future.set_result(error_response)
 
             elif msg_type == "chunk_end":
-                # End of chunked response - assemble and deliver
+                # End of chunked response - assemble and deliver (or finalize SSE stream)
                 chunk_end = ChunkEnd(**msg)
                 stream_info = self._chunk_streams.pop(chunk_end.stream_id, None)
                 if stream_info:
                     _created, request_id, status, headers = stream_info
-                    try:
-                        body = self._chunk_assembler.end_stream(chunk_end)
-                        # Fix headers - remove Content-Length as we'll set it correctly
-                        # Also remove Transfer-Encoding as we're sending the full body
-                        # Ensure all values are strings for aiohttp compatibility
-                        clean_headers = {
-                            k: str(v) if not isinstance(v, str) else v
-                            for k, v in headers.items()
-                            if k.lower() not in ("content-length", "transfer-encoding")
-                        }
-                        # Create response and deliver to pending request
-                        response = HttpResponse(
-                            request_id=request_id,
-                            status=status,
-                            headers=clean_headers,
-                            body=body,
-                        )
-                        ctx = self._pending_requests.get(request_id)
-                        if ctx and not ctx.future.done():
-                            ctx.future.set_result(response)
+                    ctx = self._pending_requests.get(request_id)
+
+                    # Check if this is an SSE stream - signal completion
+                    if ctx and ctx.is_sse_stream:
+                        try:
+                            if ctx.stream_response:
+                                await ctx.stream_response.write_eof()
+                        except Exception as e:
+                            logger.warning("SSE write_eof error", error=str(e))
+                        # Signal completion and cancel heartbeat
+                        if ctx.sse_complete:
+                            ctx.sse_complete.set()
+                        if ctx.heartbeat_task and not ctx.heartbeat_task.done():
+                            ctx.heartbeat_task.cancel()
                         logger.debug(
-                            "Chunk stream completed",
+                            "SSE stream completed",
                             stream_id=str(chunk_end.stream_id),
                             request_id=str(request_id),
                             total_chunks=chunk_end.total_chunks,
-                            body_size=len(body),
                         )
-                    except ValueError as e:
-                        logger.error("Chunk assembly error", error=str(e))
-                        # Send error response so request doesn't hang
-                        ctx = self._pending_requests.get(request_id)
-                        if ctx and not ctx.future.done():
-                            error_response = HttpResponse(
+                    else:
+                        # Regular chunked response - assemble and deliver
+                        try:
+                            body = self._chunk_assembler.end_stream(chunk_end)
+                            clean_headers = {
+                                k: str(v) if not isinstance(v, str) else v
+                                for k, v in headers.items()
+                                if k.lower() not in ("content-length", "transfer-encoding")
+                            }
+                            response = HttpResponse(
                                 request_id=request_id,
-                                status=500,
-                                headers={"Content-Type": "text/plain"},
-                                body=f"Chunk assembly error: {e}".encode(),
+                                status=status,
+                                headers=clean_headers,
+                                body=body,
                             )
-                            ctx.future.set_result(error_response)
+                            if ctx and not ctx.future.done():
+                                ctx.future.set_result(response)
+                            logger.debug(
+                                "Chunk stream completed",
+                                stream_id=str(chunk_end.stream_id),
+                                request_id=str(request_id),
+                                total_chunks=chunk_end.total_chunks,
+                                body_size=len(body),
+                            )
+                        except ValueError as e:
+                            logger.error("Chunk assembly error", error=str(e))
+                            if ctx and not ctx.future.done():
+                                error_response = HttpResponse(
+                                    request_id=request_id,
+                                    status=500,
+                                    headers={"Content-Type": "text/plain"},
+                                    body=f"Chunk assembly error: {e}".encode(),
+                                )
+                                ctx.future.set_result(error_response)
                 else:
                     logger.warning(
                         "Chunk end for unknown stream",
@@ -737,6 +907,37 @@ class RelayServer:
             elif msg_type == "ping":
                 pong = Pong(timestamp=msg["timestamp"], server_time=int(time.time() * 1000))
                 await tunnel.websocket.send_bytes(encode_message(pong, tunnel.compression))
+
+            elif msg_type == "websocket_upgrade_response":
+                # WebSocket upgrade response from tunnel client
+                response = WebSocketUpgradeResponse(**msg)
+                ctx = self._pending_requests.get(response.request_id)
+                if ctx and not ctx.future.done():
+                    ctx.future.set_result(response)
+
+            elif msg_type == "websocket_frame":
+                # WebSocket frame from tunnel - forward to browser
+                frame = WebSocketFrame(**msg)
+                ws = self._ws_proxies.get(frame.tunnel_id)
+                if ws and not ws.closed:
+                    try:
+                        if frame.opcode == WebSocketOpcode.TEXT:
+                            await ws.send_str(frame.payload.decode("utf-8"))
+                        elif frame.opcode == WebSocketOpcode.BINARY:
+                            await ws.send_bytes(frame.payload)
+                        elif frame.opcode == WebSocketOpcode.PING:
+                            await ws.ping(frame.payload)
+                        elif frame.opcode == WebSocketOpcode.PONG:
+                            await ws.pong(frame.payload)
+                    except Exception as e:
+                        logger.warning("Failed to forward WS frame", error=str(e))
+
+            elif msg_type == "websocket_close":
+                # WebSocket close from tunnel - close browser connection
+                close_msg = WebSocketClose(**msg)
+                ws = self._ws_proxies.pop(close_msg.tunnel_id, None)
+                if ws and not ws.closed:
+                    await ws.close(code=close_msg.code, message=close_msg.reason.encode())
 
             elif msg_type == "disconnect":
                 logger.info(
@@ -752,6 +953,146 @@ class RelayServer:
                 subdomain=tunnel.subdomain,
                 error=str(e),
             )
+
+    async def _handle_websocket_proxy(
+        self, request: web.Request, tunnel: TunnelConnection
+    ) -> web.WebSocketResponse:
+        """Handle WebSocket upgrade and bidirectional proxying through tunnel."""
+        from uuid import uuid4
+
+        tunnel_id = uuid4()
+        request_id = uuid4()
+
+        # Prepare headers for upgrade request
+        headers = {}
+        for key, value in request.headers.items():
+            key_lower = key.lower()
+            if key_lower not in ("host", "connection", "upgrade"):
+                headers[key] = value
+        headers["X-Forwarded-For"] = request.remote or ""
+        headers["X-Forwarded-Proto"] = "https" if self._ssl_context else "http"
+
+        # Get subprotocols
+        subprotocols = []
+        if "Sec-WebSocket-Protocol" in request.headers:
+            subprotocols = [
+                p.strip()
+                for p in request.headers["Sec-WebSocket-Protocol"].split(",")
+            ]
+
+        # Create WebSocket upgrade message
+        ws_upgrade = WebSocketUpgrade(
+            tunnel_id=tunnel_id,
+            request_id=request_id,
+            path=request.path_qs,
+            headers=headers,
+            subprotocols=subprotocols,
+        )
+
+        # Create future for upgrade response
+        future: asyncio.Future[WebSocketUpgradeResponse] = asyncio.Future()
+        self._pending_requests[request_id] = RequestContext(
+            request_id=request_id,
+            tunnel=tunnel,
+            future=future,
+            http_request=request,
+            sse_complete=asyncio.Event(),
+        )
+
+        try:
+            # Send upgrade request to tunnel
+            msg_bytes = encode_message(ws_upgrade, tunnel.compression)
+            await tunnel.websocket.send_bytes(msg_bytes)
+
+            # Wait for upgrade response
+            timeout = self.config.request_timeout or 30.0
+            response = await asyncio.wait_for(future, timeout=timeout)
+
+            if not response.success:
+                # Upgrade failed
+                return web.Response(
+                    text=response.error or "WebSocket upgrade failed",
+                    status=502,
+                    content_type="text/plain",
+                )
+
+            # Create WebSocket response
+            ws = web.WebSocketResponse(protocols=subprotocols)
+            await ws.prepare(request)
+
+            # Store for frame forwarding
+            self._ws_proxies[tunnel_id] = ws
+
+            logger.info(
+                "WebSocket proxy established",
+                tunnel_id=str(tunnel_id),
+                path=request.path_qs,
+            )
+
+            # Bidirectional forwarding loop
+            try:
+                async for msg in ws:
+                    if msg.type == WSMsgType.TEXT:
+                        # Forward text frame to tunnel
+                        frame = WebSocketFrame(
+                            tunnel_id=tunnel_id,
+                            opcode=WebSocketOpcode.TEXT,
+                            payload=msg.data.encode() if isinstance(msg.data, str) else msg.data,
+                        )
+                        await tunnel.websocket.send_bytes(
+                            encode_message(frame, tunnel.compression)
+                        )
+                    elif msg.type == WSMsgType.BINARY:
+                        # Forward binary frame to tunnel
+                        frame = WebSocketFrame(
+                            tunnel_id=tunnel_id,
+                            opcode=WebSocketOpcode.BINARY,
+                            payload=msg.data,
+                        )
+                        await tunnel.websocket.send_bytes(
+                            encode_message(frame, tunnel.compression)
+                        )
+                    elif msg.type == WSMsgType.CLOSE:
+                        # Send close to tunnel
+                        close_msg = WebSocketClose(
+                            tunnel_id=tunnel_id,
+                            code=msg.data or 1000,
+                            reason=msg.extra or "",
+                        )
+                        await tunnel.websocket.send_bytes(
+                            encode_message(close_msg, tunnel.compression)
+                        )
+                        break
+                    elif msg.type == WSMsgType.ERROR:
+                        logger.error(
+                            "WebSocket error",
+                            tunnel_id=str(tunnel_id),
+                            error=str(ws.exception()),
+                        )
+                        break
+            finally:
+                # Cleanup
+                self._ws_proxies.pop(tunnel_id, None)
+                if not ws.closed:
+                    await ws.close()
+
+            return ws
+
+        except TimeoutError:
+            return web.Response(
+                text="WebSocket upgrade timeout",
+                status=504,
+                content_type="text/plain",
+            )
+        except Exception as e:
+            logger.error("WebSocket proxy error", error=str(e))
+            return web.Response(
+                text=f"WebSocket error: {e}",
+                status=502,
+                content_type="text/plain",
+            )
+        finally:
+            self._pending_requests.pop(request_id, None)
 
     async def _handle_http_request(self, request: web.Request) -> web.StreamResponse:
         """Handle incoming HTTP request and route to tunnel.
@@ -877,6 +1218,10 @@ class RelayServer:
         upgrade_header = request.headers.get("Upgrade", "").lower()
         is_websocket_upgrade = "upgrade" in connection_header and upgrade_header == "websocket"
 
+        # Handle WebSocket upgrade with bidirectional forwarding
+        if is_websocket_upgrade:
+            return await self._handle_websocket_proxy(request, tunnel)
+
         for key, value in request.headers.items():
             key_lower = key.lower()
             # Skip standard hop-by-hop headers
@@ -908,6 +1253,8 @@ class RelayServer:
             request_id=request_id,
             tunnel=tunnel,
             future=future,
+            http_request=request,
+            sse_complete=asyncio.Event(),
         )
         self._pending_requests[request_id] = ctx
 
@@ -922,11 +1269,52 @@ class RelayServer:
             # Wait for response with configurable timeout
             # Default 120s matches Cloudflare. None/0 means indefinite.
             timeout = self.config.request_timeout
+
+            # For SSE streams, we need to wait for both:
+            # 1. The future (in case it's a regular response or error)
+            # 2. The sse_complete event (for SSE streaming completion)
+            async def wait_for_response():
+                """Wait for either regular response or SSE completion."""
+                future_task = asyncio.create_task(future)
+                sse_task = asyncio.create_task(ctx.sse_complete.wait())
+
+                done, pending = await asyncio.wait(
+                    [future_task, sse_task],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+
+                # Cancel pending tasks
+                for task in pending:
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+
+                # Check if SSE stream completed
+                if ctx.is_sse_stream and ctx.stream_response:
+                    return None  # SSE response already sent
+
+                # Return regular response
+                if future_task in done:
+                    return future_task.result()
+                return None
+
             if timeout is None or timeout <= 0:
                 # Indefinite timeout - wait forever
-                response = await future
+                response = await wait_for_response()
             else:
-                response = await asyncio.wait_for(future, timeout=timeout)
+                response = await asyncio.wait_for(wait_for_response(), timeout=timeout)
+
+            # If SSE stream was handled, return the stream response
+            if response is None and ctx.is_sse_stream and ctx.stream_response:
+                return ctx.stream_response
+
+            # Handle None response (shouldn't happen, but defensive)
+            if response is None:
+                return web.Response(
+                    text="No response received",
+                    status=502,
+                    content_type="text/plain",
+                )
 
             # Build response headers
             # For WebSocket upgrade responses (status 101), preserve upgrade headers
