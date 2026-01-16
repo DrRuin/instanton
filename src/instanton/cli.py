@@ -586,19 +586,6 @@ async def start_udp_tunnel_cli(
         await client.close()
 
 
-@main.command()
-@click.argument("url")
-@click.option("--output", "-o", type=click.Path(), help="Output file for request data")
-def replay(url: str, output: str | None):
-    """Replay a captured request from the inspector.
-
-    Examples:
-
-        instanton replay https://myapp.instanton.tech/api/test
-    """
-    console.print("[yellow]Request replay feature coming soon![/yellow]")
-
-
 def _format_bytes(num_bytes: int | float) -> str:
     """Format bytes into human readable string."""
     value: float = float(num_bytes)
@@ -607,6 +594,399 @@ def _format_bytes(num_bytes: int | float) -> str:
             return f"{value:.1f} {unit}"
         value /= 1024.0
     return f"{value:.1f} TB"
+
+
+# =============================================================================
+# Dashboard Command
+# =============================================================================
+
+
+@main.command()
+@click.option("--host", default="127.0.0.1", help="Dashboard bind host")
+@click.option("--port", default=4040, type=int, help="Dashboard bind port")
+@click.option(
+    "--mode",
+    default="local",
+    type=click.Choice(["local", "cloud"]),
+    help="Dashboard mode (local=self-hosted, cloud=Supabase)",
+)
+@click.option(
+    "--database",
+    "database_url",
+    envvar="INSTANTON_DATABASE_URL",
+    help="Database URL (sqlite:///path.db or postgresql://user:pass@host/db)",
+)
+@click.option(
+    "--antiabuse/--no-antiabuse",
+    default=False,
+    help="Enable anti-abuse protection (self-hosted mode)",
+)
+@click.option("--reload", "auto_reload", is_flag=True, help="Enable auto-reload for development")
+def dashboard(
+    host: str,
+    port: int,
+    mode: str,
+    database_url: str | None,
+    antiabuse: bool,
+    auto_reload: bool,
+):
+    """Start the Instanton dashboard.
+
+    The dashboard provides a web UI for managing tunnels, viewing traffic,
+    and managing API tokens.
+
+    Self-Hosted Mode (default):
+        - SQLite (default) or PostgreSQL storage
+        - Optional authentication and anti-abuse
+        - Unlimited log retention
+        - Good for development and enterprise setups
+
+    Cloud Mode:
+        - Requires Supabase configuration
+        - User authentication via Supabase Auth
+        - Anti-abuse protection enabled
+        - 30-day log retention
+        - Good for public SaaS hosting
+
+    Database Options:
+
+        SQLite (simple, file-based):
+            --database sqlite:///instanton.db
+
+        In-memory SQLite (for testing):
+            --database sqlite::memory:
+
+        PostgreSQL (production):
+            --database postgresql://user:pass@localhost:5432/instanton
+
+    Examples:
+
+        instanton dashboard
+
+        instanton dashboard --port 8080
+
+        instanton dashboard --database postgresql://user:pass@localhost/instanton
+
+        instanton dashboard --antiabuse
+
+        instanton dashboard --mode cloud
+    """
+    import uvicorn
+
+    from instanton.dashboard.app import create_app
+    from instanton.dashboard.config import DashboardConfig, DashboardMode
+
+    console.print(BANNER, style="cyan")
+
+    # Parse mode
+    dashboard_mode = DashboardMode.LOCAL if mode == "local" else DashboardMode.CLOUD
+
+    # Create config
+    config = DashboardConfig(
+        mode=dashboard_mode,
+        database_url=database_url,
+        antiabuse_enabled=antiabuse,
+    )
+
+    # Validate database config
+    issues = config.validate_database_config()
+    if issues:
+        for issue in issues:
+            console.print(f"[yellow]Warning:[/yellow] {issue}")
+
+    # Create app
+    app = create_app(config)
+
+    console.print("[bold]Starting Instanton Dashboard[/bold]", style="green")
+    console.print(f"[bold]Mode:[/bold] {mode}")
+    console.print(f"[bold]Database:[/bold] {config.database_type.value}")
+    if database_url:
+        # Mask password in URL for display
+        display_url = database_url
+        if "@" in database_url and "://" in database_url:
+            # postgresql://user:pass@host -> postgresql://user:***@host
+            import re
+
+            display_url = re.sub(r":([^:@]+)@", r":***@", database_url)
+        console.print(f"[bold]Database URL:[/bold] {display_url}")
+    antiabuse_status = "enabled" if config.is_antiabuse_enabled else "disabled"
+    console.print(f"[bold]Anti-abuse:[/bold] {antiabuse_status}")
+    console.print(f"[bold]URL:[/bold] [cyan]http://{host}:{port}[/cyan]")
+    console.print()
+
+    if mode == "cloud":
+        if not config.supabase_url or not config.supabase_anon_key:
+            console.print(
+                "[yellow]Warning:[/yellow] Cloud mode requires SUPABASE_URL and "
+                "SUPABASE_ANON_KEY environment variables."
+            )
+            console.print("Falling back to local mode...")
+            config = DashboardConfig(mode=DashboardMode.LOCAL, database_url=database_url)
+            app = create_app(config)
+
+    console.print("Press Ctrl+C to stop the server.\n", style="dim")
+
+    # Run with uvicorn
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        reload=auto_reload,
+        log_level="info",
+    )
+
+
+# =============================================================================
+# Domain Management Commands
+# =============================================================================
+
+
+@main.group()
+def domain():
+    """Manage custom domains for tunnels.
+
+    Custom domains allow you to use your own domain (e.g., api.mycompany.com)
+    instead of the default random.instanton.tech subdomains.
+
+    Examples:
+
+        instanton domain add api.mycompany.com --tunnel-id abc123
+
+        instanton domain verify api.mycompany.com
+
+        instanton domain list
+
+        instanton domain status api.mycompany.com
+
+        instanton domain remove api.mycompany.com
+    """
+    pass
+
+
+@domain.command("add")
+@click.argument("domain_name")
+@click.option("--tunnel-id", "-t", required=True, help="Tunnel ID to associate with this domain")
+@click.option("--storage", default="domains.json", help="Path to domain storage file")
+def domain_add(domain_name: str, tunnel_id: str, storage: str):
+    """Register a new custom domain.
+
+    After registration, you'll receive DNS records to configure.
+    """
+    asyncio.run(_domain_add_async(domain_name, tunnel_id, storage))
+
+
+async def _domain_add_async(domain_name: str, tunnel_id: str, storage: str):
+    """Async implementation of domain add command."""
+    from instanton.domains import DomainManager, DomainStore
+
+    store = DomainStore(storage)
+    manager = DomainManager(store)
+
+    try:
+        registration = await manager.register_domain(domain_name, tunnel_id)
+
+        console.print(
+            Panel(
+                f"[green]Domain registered successfully![/green]\n\n"
+                f"[bold]Domain:[/bold] {registration.domain}\n"
+                f"[bold]Tunnel ID:[/bold] {registration.tunnel_id}\n"
+                f"[bold]Status:[/bold] Pending verification\n\n"
+                f"[yellow]Configure these DNS records:[/yellow]\n\n"
+                f"1. [bold]CNAME Record[/bold]\n"
+                f"   Name: {domain_name}\n"
+                f"   Value: instanton.tech\n\n"
+                f"2. [bold]TXT Record[/bold]\n"
+                f"   Name: _instanton.{domain_name}\n"
+                f"   Value: {registration.verification_token}\n\n"
+                f"After configuring DNS, run:\n"
+                f"  [cyan]instanton domain verify {domain_name}[/cyan]",
+                title="Domain Registration",
+                border_style="green",
+            )
+        )
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
+
+
+@domain.command("verify")
+@click.argument("domain_name")
+@click.option("--storage", default="domains.json", help="Path to domain storage file")
+def domain_verify(domain_name: str, storage: str):
+    """Verify DNS records for a domain."""
+    asyncio.run(_domain_verify_async(domain_name, storage))
+
+
+async def _domain_verify_async(domain_name: str, storage: str):
+    """Async implementation of domain verify command."""
+    from instanton.domains import DomainManager, DomainStore
+
+    store = DomainStore(storage)
+    manager = DomainManager(store)
+
+    try:
+        console.print(f"Verifying DNS records for [cyan]{domain_name}[/cyan]...", style="yellow")
+        result = await manager.verify_domain(domain_name)
+
+        if result.is_verified:
+            console.print(
+                Panel(
+                    f"[green]Domain verified successfully![/green]\n\n"
+                    f"[bold]Domain:[/bold] {result.domain}\n"
+                    f"[bold]CNAME:[/bold] [green]Valid[/green] -> {result.cname_target}\n"
+                    f"[bold]TXT:[/bold] [green]Valid[/green]\n\n"
+                    f"Your domain is now active and ready to use!",
+                    title="Verification Successful",
+                    border_style="green",
+                )
+            )
+        else:
+            cname_status = "[green]Valid[/green]" if result.cname_valid else "[red]Invalid[/red]"
+            txt_status = "[green]Valid[/green]" if result.txt_valid else "[red]Invalid[/red]"
+
+            console.print(
+                Panel(
+                    f"[yellow]Verification incomplete[/yellow]\n\n"
+                    f"[bold]Domain:[/bold] {result.domain}\n"
+                    f"[bold]CNAME:[/bold] {cname_status}\n"
+                    f"[bold]TXT:[/bold] {txt_status}\n\n"
+                    f"[red]Error:[/red] {result.error or 'Unknown error'}",
+                    title="Verification Status",
+                    border_style="yellow",
+                )
+            )
+            sys.exit(1)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        sys.exit(1)
+
+
+@domain.command("list")
+@click.option("--storage", default="domains.json", help="Path to domain storage file")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+def domain_list(storage: str, json_output: bool):
+    """List all registered domains."""
+    asyncio.run(_domain_list_async(storage, json_output))
+
+
+async def _domain_list_async(storage: str, json_output: bool):
+    """Async implementation of domain list command."""
+    import json
+
+    from instanton.domains import DomainStore
+
+    store = DomainStore(storage)
+    domains = await store.list_all()
+
+    if json_output:
+        data = [d.to_dict() for d in domains]
+        console.print(json.dumps(data, indent=2, default=str))
+        return
+
+    if not domains:
+        console.print("[dim]No domains registered[/dim]")
+        return
+
+    table = Table(title="Registered Domains")
+    table.add_column("Domain", style="cyan")
+    table.add_column("Tunnel ID", style="dim")
+    table.add_column("Verified", justify="center")
+    table.add_column("Created At")
+
+    for domain in domains:
+        verified = "[green]Yes[/green]" if domain.verified else "[yellow]No[/yellow]"
+        created = domain.created_at.strftime("%Y-%m-%d %H:%M") if domain.created_at else "N/A"
+        table.add_row(
+            domain.domain,
+            domain.tunnel_id[:12] + "..." if len(domain.tunnel_id) > 12 else domain.tunnel_id,
+            verified,
+            created,
+        )
+
+    console.print(table)
+
+
+@domain.command("status")
+@click.argument("domain_name")
+@click.option("--storage", default="domains.json", help="Path to domain storage file")
+def domain_status(domain_name: str, storage: str):
+    """Show detailed status for a domain."""
+    asyncio.run(_domain_status_async(domain_name, storage))
+
+
+async def _domain_status_async(domain_name: str, storage: str):
+    """Async implementation of domain status command."""
+    from instanton.domains import DomainManager, DomainStatus, DomainStore
+
+    store = DomainStore(storage)
+    manager = DomainManager(store)
+
+    info = await manager.get_domain_status(domain_name)
+
+    if info.status == DomainStatus.NOT_FOUND:
+        console.print(f"[red]Domain not found:[/red] {domain_name}")
+        sys.exit(1)
+
+    status_colors = {
+        DomainStatus.PENDING_VERIFICATION: "yellow",
+        DomainStatus.CNAME_ONLY: "yellow",
+        DomainStatus.VERIFIED: "green",
+        DomainStatus.CERTIFICATE_PENDING: "cyan",
+        DomainStatus.ACTIVE: "green",
+    }
+    status_color = status_colors.get(info.status, "white")
+
+    content = (
+        f"[bold]Domain:[/bold] {info.domain}\n"
+        f"[bold]Status:[/bold] [{status_color}]{info.status.value}[/{status_color}]\n"
+        f"[bold]Tunnel ID:[/bold] {info.tunnel_id or 'N/A'}\n"
+        f"[bold]Verified:[/bold] {'Yes' if info.verified else 'No'}\n"
+        f"[bold]Certificate:[/bold] {'Ready' if info.certificate_ready else 'Pending'}"
+    )
+
+    if info.verified_at:
+        content += f"\n[bold]Verified At:[/bold] {info.verified_at.strftime('%Y-%m-%d %H:%M')}"
+
+    if info.dns_instructions:
+        content += f"\n\n[yellow]DNS Setup Required:[/yellow]\n{info.dns_instructions}"
+
+    console.print(
+        Panel(
+            content,
+            title=f"Domain Status: {domain_name}",
+            border_style=status_color,
+        )
+    )
+
+
+@domain.command("remove")
+@click.argument("domain_name")
+@click.option("--storage", default="domains.json", help="Path to domain storage file")
+@click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
+def domain_remove(domain_name: str, storage: str, yes: bool):
+    """Remove a registered domain."""
+    if not yes:
+        if not click.confirm(f"Are you sure you want to remove '{domain_name}'?"):
+            console.print("[dim]Cancelled[/dim]")
+            return
+
+    asyncio.run(_domain_remove_async(domain_name, storage))
+
+
+async def _domain_remove_async(domain_name: str, storage: str):
+    """Async implementation of domain remove command."""
+    from instanton.domains import DomainManager, DomainStore
+
+    store = DomainStore(storage)
+    manager = DomainManager(store)
+
+    deleted = await manager.delete_domain(domain_name)
+
+    if deleted:
+        console.print(f"[green]Domain removed:[/green] {domain_name}")
+    else:
+        console.print(f"[red]Domain not found:[/red] {domain_name}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

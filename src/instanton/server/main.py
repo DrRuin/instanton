@@ -37,6 +37,34 @@ BANNER = """
     default=120.0,
     help="Request timeout in seconds (0 for indefinite). Default: 120s",
 )
+@click.option(
+    "--rate-limit",
+    is_flag=True,
+    default=False,
+    help="Enable rate limiting per IP",
+)
+@click.option(
+    "--rate-limit-rps",
+    type=float,
+    default=100.0,
+    help="Requests per second limit (default: 100)",
+)
+@click.option(
+    "--rate-limit-burst",
+    type=int,
+    default=10,
+    help="Burst allowance above rate limit (default: 10)",
+)
+@click.option(
+    "--ip-allow",
+    multiple=True,
+    help="Allow IP/CIDR (can repeat). Example: --ip-allow 10.0.0.0/8",
+)
+@click.option(
+    "--ip-deny",
+    multiple=True,
+    help="Deny IP/CIDR (can repeat). Deny takes precedence. Example: --ip-deny 1.2.3.4",
+)
 def main(
     domain: str,
     https_bind: str,
@@ -47,12 +75,20 @@ def main(
     acme_email: str | None,
     max_tunnels: int,
     request_timeout: float,
+    rate_limit: bool,
+    rate_limit_rps: float,
+    rate_limit_burst: int,
+    ip_allow: tuple[str, ...],
+    ip_deny: tuple[str, ...],
 ):
     """Run the Instanton relay server."""
     console.print(BANNER, style="cyan")
 
     # Convert 0 to None for indefinite timeout
     timeout_value = request_timeout if request_timeout > 0 else None
+
+    # Determine if IP restrictions are enabled (any rules provided)
+    ip_restrict_enabled = bool(ip_allow or ip_deny)
 
     config = ServerConfig(
         base_domain=domain,
@@ -64,6 +100,12 @@ def main(
         acme_email=acme_email,
         max_tunnels=max_tunnels,
         request_timeout=timeout_value,
+        rate_limit_enabled=rate_limit,
+        rate_limit_rps=rate_limit_rps,
+        rate_limit_burst=rate_limit_burst,
+        ip_restrict_enabled=ip_restrict_enabled,
+        ip_allow=list(ip_allow),
+        ip_deny=list(ip_deny),
     )
 
     console.print(f"Starting relay server for {domain}...", style="yellow")
@@ -71,6 +113,10 @@ def main(
     console.print(f"Control: {control_bind}", style="dim")
     timeout_str = f"{timeout_value}s" if timeout_value else "indefinite"
     console.print(f"Request timeout: {timeout_str}", style="dim")
+    if rate_limit:
+        console.print(f"Rate limit: {rate_limit_rps} req/s, burst: {rate_limit_burst}", style="dim")
+    if ip_restrict_enabled:
+        console.print(f"IP restrictions: {len(ip_allow)} allow, {len(ip_deny)} deny", style="dim")
 
     asyncio.run(run_server(config))
 

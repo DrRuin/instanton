@@ -1,12 +1,4 @@
-"""Authentication providers for Instanton.
-
-Supports multiple authentication methods:
-- API Key authentication
-- JWT (JSON Web Token) authentication
-- HTTP Basic authentication
-- OAuth2/OIDC integration
-- mTLS (Mutual TLS) client certificate authentication
-"""
+"""Authentication providers: API Key, JWT, Basic, OAuth2, mTLS."""
 
 from __future__ import annotations
 

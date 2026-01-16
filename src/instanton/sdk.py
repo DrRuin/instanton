@@ -1,30 +1,6 @@
 """Instanton SDK - Embeddable tunnel integration for Python applications.
 
-This module provides a simple API for embedding Instanton tunnels
-directly into Python applications with minimal code.
-
-Example usage:
-
-    # Simple one-line tunnel
-    import instanton
-    listener = await instanton.forward(8000)
-    print(f"Public URL: {listener.url}")
-
-    # With configuration
-    listener = await instanton.forward(
-        8000,
-        subdomain="myapp",
-        auth_token="your-token",
-    )
-
-    # Context manager for automatic cleanup
-    async with instanton.forward(8000) as listener:
-        print(f"Tunnel active at {listener.url}")
-        # Do work...
-    # Tunnel automatically closed
-
-    # For sync applications
-    listener = instanton.forward_sync(8000)
+Provides forward() and forward_sync() to expose local ports via tunnels.
 """
 
 from __future__ import annotations
@@ -361,7 +337,6 @@ async def forward(
 
     # Resolve configuration
     server_addr = server or config.server
-    _ = auth_token or config.auth_token  # Reserved for future auth implementation
     reconnect = auto_reconnect if auto_reconnect is not None else config.auto_reconnect
     quic = use_quic if use_quic is not None else config.use_quic
     timeout = connect_timeout if connect_timeout is not None else config.connect_timeout

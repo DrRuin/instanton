@@ -1,582 +1,272 @@
-"""Tests for rate limiting functionality."""
+"""Tests for rate limiting module."""
+
+from __future__ import annotations
 
 import asyncio
-import time
+from time import monotonic
 
 import pytest
 
 from instanton.security.ratelimit import (
-    AdaptiveRateLimiter,
-    LoadMetrics,
     RateLimitConfig,
-    RateLimitManager,
+    RateLimiter,
     RateLimitResult,
-    RateLimitScope,
-    SlidingWindowLimiter,
-    TokenBucketLimiter,
+    SlidingWindowCounter,
+    create_rate_limiter,
 )
 
 
-class TestTokenBucketLimiter:
-    """Tests for TokenBucketLimiter."""
+class TestSlidingWindowCounter:
+    """Tests for SlidingWindowCounter."""
 
-    @pytest.mark.asyncio
-    async def test_basic_acquire(self) -> None:
-        """Test basic token acquisition."""
-        limiter = TokenBucketLimiter(rate=10, capacity=10, time_period=1.0)
+    def test_basic_allow(self):
+        """Test basic allow functionality."""
+        counter = SlidingWindowCounter(limit=10, window_seconds=1.0)
+        allowed, remaining, reset_after = counter.allow()
+        assert allowed is True
+        assert remaining == 9
 
-        result = await limiter.acquire()
-        assert result.allowed is True
-        assert result.limit == 10
-        assert result.remaining == 9
+    def test_exceeds_limit(self):
+        """Test that requests are denied after limit exceeded."""
+        counter = SlidingWindowCounter(limit=3, window_seconds=1.0)
 
-    @pytest.mark.asyncio
-    async def test_burst_capacity(self) -> None:
-        """Test that burst capacity is respected."""
-        limiter = TokenBucketLimiter(rate=10, capacity=5, time_period=1.0)
+        # Use up the limit
+        for _ in range(3):
+            allowed, _, _ = counter.allow()
+            assert allowed is True
 
-        # Should allow up to capacity
-        for i in range(5):
-            result = await limiter.acquire()
-            assert result.allowed is True, f"Request {i+1} should be allowed"
+        # Next request should be denied
+        allowed, remaining, _ = counter.allow()
+        assert allowed is False
+        assert remaining == 0
 
-        # 6th request should be denied
-        result = await limiter.acquire()
-        assert result.allowed is False
-        assert result.retry_after is not None
-        assert result.retry_after > 0
+    def test_window_rotation(self):
+        """Test that counters rotate after window expires."""
+        counter = SlidingWindowCounter(limit=3, window_seconds=0.1)
 
-    @pytest.mark.asyncio
-    async def test_token_refill(self) -> None:
-        """Test that tokens refill over time."""
-        limiter = TokenBucketLimiter(rate=10, capacity=10, time_period=1.0)
-
-        # Exhaust all tokens
-        for _ in range(10):
-            await limiter.acquire()
+        # Use up the limit
+        for _ in range(3):
+            counter.allow()
 
         # Should be denied
-        result = await limiter.acquire()
-        assert result.allowed is False
+        allowed, _, _ = counter.allow()
+        assert allowed is False
 
-        # Wait for refill (0.2 seconds should add 2 tokens)
-        await asyncio.sleep(0.2)
+        # Wait for window to expire
+        import time
 
-        # Should have 2 tokens now
-        result = await limiter.acquire()
-        assert result.allowed is True
+        time.sleep(0.15)
 
-    @pytest.mark.asyncio
-    async def test_multi_token_acquire(self) -> None:
-        """Test acquiring multiple tokens at once."""
-        limiter = TokenBucketLimiter(rate=10, capacity=10, time_period=1.0)
+        # Should be allowed again
+        allowed, _, _ = counter.allow()
+        assert allowed is True
 
-        # Acquire 5 tokens
-        result = await limiter.acquire(tokens=5)
-        assert result.allowed is True
-        assert result.remaining == 5
+    def test_peek_doesnt_increment(self):
+        """Test that peek doesn't affect counter."""
+        counter = SlidingWindowCounter(limit=3, window_seconds=1.0)
 
-        # Acquire 5 more
-        result = await limiter.acquire(tokens=5)
-        assert result.allowed is True
-        assert result.remaining == 0
+        remaining1, _ = counter.peek()
+        remaining2, _ = counter.peek()
 
-        # Should be denied now
-        result = await limiter.acquire()
-        assert result.allowed is False
+        assert remaining1 == remaining2 == 3
 
-    @pytest.mark.asyncio
-    async def test_reset(self) -> None:
-        """Test resetting the bucket."""
-        limiter = TokenBucketLimiter(rate=10, capacity=10, time_period=1.0)
+    def test_sliding_window_interpolation(self):
+        """Test that sliding window interpolates correctly after full window passes."""
+        import time
 
-        # Exhaust tokens
+        counter = SlidingWindowCounter(limit=10, window_seconds=0.1)
+
+        # Fill up current window
         for _ in range(10):
-            await limiter.acquire()
+            counter.allow()
+
+        # Should be denied
+        allowed, _, _ = counter.allow()
+        assert allowed is False
+
+        # Wait for two full windows to pass (counters reset completely)
+        time.sleep(0.25)
+
+        # Now should be fully available again
+        remaining, _ = counter.peek()
+        assert remaining == 10  # Full limit available after reset
+
+
+class TestRateLimiter:
+    """Tests for RateLimiter."""
+
+    @pytest.mark.asyncio
+    async def test_basic_allow(self):
+        """Test basic rate limiter allow."""
+        limiter = create_rate_limiter(requests_per_second=10.0)
+        result = await limiter.allow("192.168.1.1")
+        assert result.allowed is True
+        assert result.remaining >= 0
+
+    @pytest.mark.asyncio
+    async def test_different_keys_independent(self):
+        """Test that different keys have independent limits."""
+        limiter = create_rate_limiter(requests_per_second=2.0, burst_size=2)
+
+        # Use up limit for key1
+        await limiter.allow("key1")
+        await limiter.allow("key1")
+        result1 = await limiter.allow("key1")
+
+        # key2 should still be allowed
+        result2 = await limiter.allow("key2")
+
+        assert result1.allowed is False
+        assert result2.allowed is True
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_result_fields(self):
+        """Test RateLimitResult has correct fields."""
+        limiter = create_rate_limiter(requests_per_second=100.0)
+        result = await limiter.allow("test-ip")
+
+        assert isinstance(result, RateLimitResult)
+        assert isinstance(result.allowed, bool)
+        assert isinstance(result.remaining, int)
+        assert isinstance(result.reset_after, float)
+        assert isinstance(result.limit, int)
+
+    @pytest.mark.asyncio
+    async def test_check_without_increment(self):
+        """Test check doesn't increment counter."""
+        limiter = create_rate_limiter(requests_per_second=2.0, burst_size=2)
+
+        # Check should not affect limit
+        result1 = await limiter.check("test-key")
+        result2 = await limiter.check("test-key")
+
+        assert result1.remaining == result2.remaining
+
+    @pytest.mark.asyncio
+    async def test_reset_key(self):
+        """Test reset clears counter for key."""
+        limiter = create_rate_limiter(requests_per_second=2.0, burst_size=2)
+
+        # Use up limit
+        await limiter.allow("test-key")
+        await limiter.allow("test-key")
+        result1 = await limiter.allow("test-key")
+        assert result1.allowed is False
 
         # Reset
-        limiter.reset()
-
-        # Should be back to full capacity
-        result = await limiter.acquire()
-        assert result.allowed is True
-        assert result.remaining == 9
-
-    @pytest.mark.asyncio
-    async def test_result_headers(self) -> None:
-        """Test that rate limit headers are properly generated."""
-        limiter = TokenBucketLimiter(rate=100, capacity=100, time_period=60.0)
-
-        result = await limiter.acquire()
-        headers = result.to_headers()
-
-        assert "X-RateLimit-Limit" in headers
-        assert headers["X-RateLimit-Limit"] == "100"
-        assert "X-RateLimit-Remaining" in headers
-        assert "X-RateLimit-Reset" in headers
-
-
-class TestSlidingWindowLimiter:
-    """Tests for SlidingWindowLimiter."""
-
-    @pytest.mark.asyncio
-    async def test_basic_acquire(self) -> None:
-        """Test basic request acquisition."""
-        limiter = SlidingWindowLimiter(limit=10, window_size=60.0)
-
-        result = await limiter.acquire()
-        assert result.allowed is True
-        assert result.limit == 10
-
-    @pytest.mark.asyncio
-    async def test_limit_enforcement(self) -> None:
-        """Test that the limit is enforced."""
-        limiter = SlidingWindowLimiter(limit=5, window_size=60.0)
-
-        # Should allow up to limit
-        for i in range(5):
-            result = await limiter.acquire()
-            assert result.allowed is True, f"Request {i+1} should be allowed"
-
-        # 6th request should be denied
-        result = await limiter.acquire()
-        assert result.allowed is False
-        assert result.remaining == 0
-
-    @pytest.mark.asyncio
-    async def test_window_reset(self) -> None:
-        """Test that the window resets properly."""
-        # Use a very short window for testing
-        limiter = SlidingWindowLimiter(limit=2, window_size=0.1, precision=2)
-
-        # Use up the limit
-        await limiter.acquire()
-        await limiter.acquire()
-
-        # Should be denied
-        result = await limiter.acquire()
-        assert result.allowed is False
-
-        # Wait for window to pass
-        await asyncio.sleep(0.15)
+        await limiter.reset("test-key")
 
         # Should be allowed again
-        result = await limiter.acquire()
-        assert result.allowed is True
+        result2 = await limiter.allow("test-key")
+        assert result2.allowed is True
 
     @pytest.mark.asyncio
-    async def test_reset_method(self) -> None:
-        """Test the reset method."""
-        limiter = SlidingWindowLimiter(limit=2, window_size=60.0)
+    async def test_reset_all(self):
+        """Test reset with no key clears all."""
+        limiter = create_rate_limiter(requests_per_second=10.0)
 
-        # Use up the limit
-        await limiter.acquire()
-        await limiter.acquire()
+        # Add some entries
+        await limiter.allow("key1")
+        await limiter.allow("key2")
+        assert limiter.entry_count > 0
 
-        # Reset
-        limiter.reset()
+        # Reset all
+        await limiter.reset()
 
-        # Should be allowed again
-        result = await limiter.acquire()
-        assert result.allowed is True
-
-
-class TestAdaptiveRateLimiter:
-    """Tests for AdaptiveRateLimiter."""
+        assert limiter.entry_count == 0
 
     @pytest.mark.asyncio
-    async def test_basic_acquire(self) -> None:
-        """Test basic request acquisition."""
-        limiter = AdaptiveRateLimiter(
-            base_limit=100,
-            min_limit=25,
-            max_limit=200,
-            window_size=60.0,
+    async def test_lru_eviction(self):
+        """Test LRU eviction when max_entries exceeded."""
+        limiter = create_rate_limiter(
+            requests_per_second=100.0,
+            max_entries=3,
         )
 
-        result = await limiter.acquire()
-        assert result.allowed is True
-
-    @pytest.mark.asyncio
-    async def test_load_adjustment_high(self) -> None:
-        """Test that limits decrease under high load."""
-        limiter = AdaptiveRateLimiter(
-            base_limit=100,
-            min_limit=25,
-            max_limit=200,
-            window_size=60.0,
-            adjustment_interval=0.1,
-            load_threshold_high=0.8,
-        )
-
-        initial_limit = limiter.current_limit
-        assert initial_limit == 100
-
-        # Simulate high load (load_factor needs to be > 0.8)
-        # With weights: cpu=0.3, mem=0.2, conn=0.2, lat=0.15, err=0.15
-        # load = 0.3*1.0 + 0.2*1.0 + 0.2*1.0 + 0.15*1.0 + 0.15*0.5 = 0.925
-        limiter.update_load_metrics(LoadMetrics(
-            cpu_usage=1.0,
-            memory_usage=1.0,
-            active_connections=10000,
-            latency_p99=1000,
-            error_rate=0.5,
-        ))
-
-        # Wait for adjustment
-        await asyncio.sleep(0.15)
-        await limiter.acquire()
-
-        # Limit should have decreased
-        assert limiter.current_limit < initial_limit
-
-    @pytest.mark.asyncio
-    async def test_load_adjustment_low(self) -> None:
-        """Test that limits increase under low load."""
-        limiter = AdaptiveRateLimiter(
-            base_limit=100,
-            min_limit=25,
-            max_limit=200,
-            window_size=60.0,
-            adjustment_interval=0.1,
-            load_threshold_low=0.3,
-        )
-
-        initial_limit = limiter.current_limit
-        assert initial_limit == 100
-
-        # Simulate low load
-        limiter.update_load_metrics(LoadMetrics(
-            cpu_usage=0.1,
-            memory_usage=0.1,
-            active_connections=100,
-            latency_p99=10,
-            error_rate=0.0,
-        ))
-
-        # Wait for adjustment
-        await asyncio.sleep(0.15)
-        await limiter.acquire()
-
-        # Limit should have increased
-        assert limiter.current_limit > initial_limit
-
-    @pytest.mark.asyncio
-    async def test_limit_bounds(self) -> None:
-        """Test that limits stay within bounds."""
-        limiter = AdaptiveRateLimiter(
-            base_limit=100,
-            min_limit=50,
-            max_limit=150,
-            window_size=60.0,
-            adjustment_interval=0.05,
-        )
-
-        # Extreme high load
-        limiter.update_load_metrics(LoadMetrics(
-            cpu_usage=1.0,
-            memory_usage=1.0,
-            active_connections=10000,
-            latency_p99=1000,
-            error_rate=0.5,
-        ))
-
-        await asyncio.sleep(0.1)
-        await limiter.acquire()
-
-        # Should not go below min_limit
-        assert limiter.current_limit >= 50
-
-
-class TestRateLimitManager:
-    """Tests for RateLimitManager."""
-
-    @pytest.mark.asyncio
-    async def test_basic_check(self) -> None:
-        """Test basic rate limit check."""
-        manager = RateLimitManager(
-            global_limit=100,
-            per_ip_limit=10,
-            per_subdomain_limit=50,
-            window_size=60.0,
-            enable_adaptive=False,
-        )
-
-        result = await manager.check_rate_limit(ip_address="192.168.1.1")
-        assert result.allowed is True
-
-    @pytest.mark.asyncio
-    async def test_per_ip_limiting(self) -> None:
-        """Test per-IP rate limiting."""
-        manager = RateLimitManager(
-            global_limit=1000,
-            per_ip_limit=5,
-            window_size=60.0,
-            enable_adaptive=False,
-        )
-
-        # Should allow 5 requests from same IP
+        # Add entries beyond limit
         for i in range(5):
-            result = await manager.check_rate_limit(ip_address="192.168.1.1")
-            assert result.allowed is True, f"Request {i+1} should be allowed"
+            await limiter.allow(f"key{i}")
 
-        # 6th request should be denied
-        result = await manager.check_rate_limit(ip_address="192.168.1.1")
-        assert result.allowed is False
-        assert result.scope == RateLimitScope.IP
-
-        # Different IP should still be allowed
-        result = await manager.check_rate_limit(ip_address="192.168.1.2")
-        assert result.allowed is True
+        # Should have evicted oldest
+        assert limiter.entry_count <= 3
 
     @pytest.mark.asyncio
-    async def test_per_subdomain_limiting(self) -> None:
-        """Test per-subdomain rate limiting."""
-        manager = RateLimitManager(
-            global_limit=1000,
-            per_ip_limit=100,
-            per_subdomain_limit=3,
-            window_size=60.0,
-            enable_adaptive=False,
+    async def test_concurrent_requests(self):
+        """Test rate limiter handles concurrent requests."""
+        limiter = create_rate_limiter(requests_per_second=100.0)
+
+        async def make_request(key: str):
+            return await limiter.allow(key)
+
+        # Make concurrent requests
+        results = await asyncio.gather(
+            *[make_request("concurrent-key") for _ in range(10)]
         )
 
-        # Should allow 3 requests to same subdomain (from different IPs)
-        for i in range(3):
-            result = await manager.check_rate_limit(
-                ip_address=f"192.168.1.{i+1}",
-                subdomain="test",
-            )
-            assert result.allowed is True, f"Request {i+1} should be allowed"
-
-        # 4th request should be denied
-        result = await manager.check_rate_limit(
-            ip_address="192.168.1.100",
-            subdomain="test",
-        )
-        assert result.allowed is False
-        assert result.scope == RateLimitScope.SUBDOMAIN
+        # All should be processed without error
+        assert len(results) == 10
+        assert all(isinstance(r, RateLimitResult) for r in results)
 
     @pytest.mark.asyncio
-    async def test_per_api_key_limiting(self) -> None:
-        """Test per-API-key rate limiting."""
-        manager = RateLimitManager(
-            global_limit=1000,
-            per_ip_limit=100,
-            per_subdomain_limit=100,
-            per_api_key_limit=3,
-            window_size=60.0,
-            enable_adaptive=False,
+    async def test_scope_parameter(self):
+        """Test different scopes have independent limits."""
+        limiter = create_rate_limiter(requests_per_second=2.0, burst_size=2)
+
+        # Use up IP scope
+        await limiter.allow("test", scope="ip")
+        await limiter.allow("test", scope="ip")
+        result_ip = await limiter.allow("test", scope="ip")
+
+        # Subdomain scope should be independent
+        result_subdomain = await limiter.allow("test", scope="subdomain")
+
+        assert result_ip.allowed is False
+        assert result_subdomain.allowed is True
+
+
+class TestCreateRateLimiter:
+    """Tests for create_rate_limiter factory."""
+
+    def test_creates_with_defaults(self):
+        """Test create_rate_limiter with default values."""
+        limiter = create_rate_limiter()
+        assert limiter.config.requests_per_second == 100.0
+        assert limiter.config.burst_size == 10
+
+    def test_creates_with_custom_values(self):
+        """Test create_rate_limiter with custom values."""
+        limiter = create_rate_limiter(
+            requests_per_second=50.0,
+            burst_size=5,
+            window_seconds=2.0,
+            max_entries=5000,
         )
-
-        api_key = "test-api-key-12345"
-
-        # Should allow 3 requests with same API key
-        for i in range(3):
-            result = await manager.check_rate_limit(
-                ip_address=f"192.168.1.{i+1}",
-                api_key=api_key,
-            )
-            assert result.allowed is True, f"Request {i+1} should be allowed"
-
-        # 4th request should be denied
-        result = await manager.check_rate_limit(
-            ip_address="192.168.1.100",
-            api_key=api_key,
-        )
-        assert result.allowed is False
-        assert result.scope == RateLimitScope.API_KEY
-
-    @pytest.mark.asyncio
-    async def test_global_limiting(self) -> None:
-        """Test global rate limiting."""
-        manager = RateLimitManager(
-            global_limit=5,
-            per_ip_limit=100,
-            window_size=60.0,
-            enable_adaptive=False,
-        )
-
-        # Should allow up to global limit
-        for i in range(5):
-            result = await manager.check_rate_limit(ip_address=f"192.168.1.{i+1}")
-            assert result.allowed is True, f"Request {i+1} should be allowed"
-
-        # Global limit exceeded
-        result = await manager.check_rate_limit(ip_address="192.168.1.100")
-        assert result.allowed is False
-        assert result.scope == RateLimitScope.GLOBAL
-
-    @pytest.mark.asyncio
-    async def test_clear_ip_limiter(self) -> None:
-        """Test clearing a specific IP's rate limiter."""
-        manager = RateLimitManager(
-            global_limit=1000,
-            per_ip_limit=2,
-            window_size=60.0,
-            enable_adaptive=False,
-        )
-
-        ip = "192.168.1.1"
-
-        # Use up the limit
-        await manager.check_rate_limit(ip_address=ip)
-        await manager.check_rate_limit(ip_address=ip)
-
-        # Should be denied
-        result = await manager.check_rate_limit(ip_address=ip)
-        assert result.allowed is False
-
-        # Clear the limiter
-        cleared = manager.clear_ip_limiter(ip)
-        assert cleared is True
-
-        # Should be allowed again
-        result = await manager.check_rate_limit(ip_address=ip)
-        assert result.allowed is True
-
-    @pytest.mark.asyncio
-    async def test_stats(self) -> None:
-        """Test getting limiter statistics."""
-        manager = RateLimitManager(
-            global_limit=100,
-            per_ip_limit=10,
-            window_size=60.0,
-            enable_adaptive=False,
-        )
-
-        # Make some requests
-        await manager.check_rate_limit(ip_address="192.168.1.1")
-        await manager.check_rate_limit(ip_address="192.168.1.2")
-
-        stats = manager.get_limiter_stats()
-        assert "ip_limiters_count" in stats
-        assert stats["ip_limiters_count"] == 2
-        assert stats["global_limit"] == 100
-        assert stats["per_ip_limit"] == 10
+        assert limiter.config.requests_per_second == 50.0
+        assert limiter.config.burst_size == 5
+        assert limiter.config.window_seconds == 2.0
+        assert limiter.config.max_entries == 5000
 
 
 class TestRateLimitConfig:
     """Tests for RateLimitConfig."""
 
-    def test_default_values(self) -> None:
-        """Test default configuration values."""
+    def test_default_values(self):
+        """Test RateLimitConfig default values."""
         config = RateLimitConfig()
+        assert config.requests_per_second == 100.0
+        assert config.burst_size == 10
+        assert config.window_seconds == 1.0
+        assert config.max_entries == 10000
 
-        assert config.enabled is True
-        assert config.global_limit == 10000
-        assert config.per_ip_limit == 100
-        assert config.per_subdomain_limit == 1000
-        assert config.per_api_key_limit == 500
-        assert config.window_size == 60.0
-        assert config.enable_adaptive is True
-
-    def test_create_manager(self) -> None:
-        """Test creating a manager from config."""
+    def test_custom_values(self):
+        """Test RateLimitConfig with custom values."""
         config = RateLimitConfig(
-            global_limit=500,
-            per_ip_limit=50,
-            enable_adaptive=False,
+            requests_per_second=200.0,
+            burst_size=20,
+            window_seconds=5.0,
+            max_entries=20000,
         )
-
-        manager = config.create_manager()
-
-        assert isinstance(manager, RateLimitManager)
-        stats = manager.get_limiter_stats()
-        assert stats["global_limit"] == 500
-        assert stats["per_ip_limit"] == 50
-
-
-class TestConcurrency:
-    """Tests for concurrent access."""
-
-    @pytest.mark.asyncio
-    async def test_concurrent_acquire(self) -> None:
-        """Test concurrent token bucket access."""
-        limiter = TokenBucketLimiter(rate=100, capacity=100, time_period=1.0)
-
-        async def acquire_task() -> RateLimitResult:
-            return await limiter.acquire()
-
-        # Run 50 concurrent acquisitions
-        results = await asyncio.gather(*[acquire_task() for _ in range(50)])
-
-        # All should succeed
-        assert all(r.allowed for r in results)
-
-        # Remaining should be approximately correct (allow for race condition variance)
-        # After 50 acquires from 100 capacity, remaining should be around 50
-        # The final acquire brings it to ~49, but race conditions can cause slight variance
-        final_result = await limiter.acquire()
-        assert 45 <= final_result.remaining <= 50, (
-            f"Expected remaining between 45-50, got {final_result.remaining}"
-        )
-
-    @pytest.mark.asyncio
-    async def test_concurrent_manager_check(self) -> None:
-        """Test concurrent rate limit manager checks."""
-        manager = RateLimitManager(
-            global_limit=100,
-            per_ip_limit=50,
-            window_size=60.0,
-            enable_adaptive=False,
-        )
-
-        async def check_task(ip: str) -> RateLimitResult:
-            return await manager.check_rate_limit(ip_address=ip)
-
-        # Run concurrent checks from same IP
-        results = await asyncio.gather(*[
-            check_task("192.168.1.1") for _ in range(30)
-        ])
-
-        # All should succeed (within limit)
-        assert all(r.allowed for r in results)
-
-
-class TestRateLimitResult:
-    """Tests for RateLimitResult."""
-
-    def test_to_headers_allowed(self) -> None:
-        """Test header generation for allowed request."""
-        result = RateLimitResult(
-            allowed=True,
-            limit=100,
-            remaining=50,
-            reset_at=time.time() + 60,
-        )
-
-        headers = result.to_headers()
-
-        assert headers["X-RateLimit-Limit"] == "100"
-        assert headers["X-RateLimit-Remaining"] == "50"
-        assert "X-RateLimit-Reset" in headers
-        assert "Retry-After" not in headers
-
-    def test_to_headers_denied(self) -> None:
-        """Test header generation for denied request."""
-        result = RateLimitResult(
-            allowed=False,
-            limit=100,
-            remaining=0,
-            reset_at=time.time() + 60,
-            retry_after=30.5,
-        )
-
-        headers = result.to_headers()
-
-        assert headers["X-RateLimit-Limit"] == "100"
-        assert headers["X-RateLimit-Remaining"] == "0"
-        assert "Retry-After" in headers
-        assert int(headers["Retry-After"]) >= 31
-
-    def test_negative_remaining_clamped(self) -> None:
-        """Test that negative remaining is clamped to 0."""
-        result = RateLimitResult(
-            allowed=False,
-            limit=100,
-            remaining=-5,
-            reset_at=time.time(),
-        )
-
-        headers = result.to_headers()
-        assert headers["X-RateLimit-Remaining"] == "0"
+        assert config.requests_per_second == 200.0
+        assert config.burst_size == 20
+        assert config.window_seconds == 5.0
+        assert config.max_entries == 20000

@@ -6,6 +6,7 @@ from enum import IntEnum
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
+import brotli
 import lz4.frame
 import msgpack
 import zstandard as zstd
@@ -46,6 +47,7 @@ class CompressionType(IntEnum):
     NONE = 0
     LZ4 = 1
     ZSTD = 2
+    BROTLI = 3  # Google's compression algorithm - better ratio for web content
 
 
 # Protocol constants
@@ -69,6 +71,9 @@ def compress_data(data: bytes, compression: CompressionType) -> bytes:
         return lz4.frame.compress(data)
     elif compression == CompressionType.ZSTD:
         return _zstd_compressor.compress(data)
+    elif compression == CompressionType.BROTLI:
+        # Quality 4 provides good balance of speed and compression
+        return brotli.compress(data, quality=4)
     else:
         raise ValueError(f"Unsupported compression type: {compression}")
 
@@ -81,6 +86,8 @@ def decompress_data(data: bytes, compression: CompressionType) -> bytes:
         return lz4.frame.decompress(data)
     elif compression == CompressionType.ZSTD:
         return _zstd_decompressor.decompress(data)
+    elif compression == CompressionType.BROTLI:
+        return brotli.decompress(data)
     else:
         raise ValueError(f"Unsupported compression type: {compression}")
 
@@ -100,6 +107,7 @@ class NegotiateRequest(BaseModel):
             int(CompressionType.NONE),
             int(CompressionType.LZ4),
             int(CompressionType.ZSTD),
+            int(CompressionType.BROTLI),
         ]
     )
     supports_streaming: bool = True
@@ -968,6 +976,7 @@ class ProtocolNegotiator:
             CompressionType.NONE,
             CompressionType.LZ4,
             CompressionType.ZSTD,
+            CompressionType.BROTLI,
         ]
         self.supports_streaming = supports_streaming
         self.max_chunk_size = max_chunk_size
@@ -995,12 +1004,14 @@ class ProtocolNegotiator:
                 error=f"Client version {request.client_version} not supported",
             )
 
-        # Select best compression (prefer ZSTD > LZ4 > NONE)
+        # Select best compression (prefer BROTLI > ZSTD > LZ4 > NONE for web content)
         client_compressions = set(request.supported_compressions)
         server_compressions = {int(c) for c in self.supported_compressions}
         common = client_compressions & server_compressions
 
-        if CompressionType.ZSTD in common:
+        if CompressionType.BROTLI in common:
+            selected = CompressionType.BROTLI
+        elif CompressionType.ZSTD in common:
             selected = CompressionType.ZSTD
         elif CompressionType.LZ4 in common:
             selected = CompressionType.LZ4

@@ -1,8 +1,0 @@
-# Instanton Namespace
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: instanton
-  labels:
-    app.kubernetes.io/name: instanton
-    app.kubernetes.io/part-of: instanton

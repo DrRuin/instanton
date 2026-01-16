@@ -56,9 +56,15 @@ dependencies = [
     # Compression
     "lz4>=4.4.0",
     "zstandard>=0.25.0",
+    "brotli>=1.1.0",
 
-    # Rate limiting and caching
-    "aiolimiter>=1.1.0",
+    # High-Performance Hashing
+    "blake3>=1.0.0",
+
+    # MFA/TOTP
+    "pyotp>=2.9.0",
+
+    # Caching
     "cachetools>=5.5.0",
 
     # Authentication
@@ -77,6 +83,14 @@ dependencies = [
     "httpx>=0.28.1",
     "structlog>=25.5.0",
     "psutil>=5.9.0",
+
+    # DNS
+    "aiodns>=3.2.0",
+
+    # Dashboard (Shiny + Supabase)
+    "shiny>=1.0.0",
+    "supabase>=2.0.0",
+    "uvicorn>=0.34.0",
 ]
 
 [project.optional-dependencies]
@@ -89,6 +103,28 @@ dev = [
     "mypy>=1.15.0",
     "pre-commit>=4.2.0",
     "types-cachetools>=5.5.0",
+]
+
+# MFA QR code generation
+mfa = [
+    "qrcode[pil]>=7.4.0",
+]
+
+# FIDO2/Passkeys support
+fido2 = [
+    "fido2>=1.1.0",
+]
+
+# Geo-routing/blocking
+geo = [
+    "geoip2>=4.8.0",
+]
+
+# All optional features
+all = [
+    "qrcode[pil]>=7.4.0",
+    "fido2>=1.1.0",
+    "geoip2>=4.8.0",
 ]
 
 [project.scripts]
@@ -112,10 +148,6 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 
-[tool.ruff.lint.per-file-ignores]
-# Inspector server contains embedded HTML/JS templates that can't be broken into shorter lines
-"src/instanton/inspector/server.py" = ["E501"]
-
 [tool.mypy]
 python_version = "3.11"
 strict = false
@@ -135,8 +167,11 @@ show_error_codes = true
 module = [
     "cryptography.*",
     "aioquic.*",
+    "aiodns.*",
     "lz4.*",
     "zstandard.*",
+    "brotli.*",
+    "blake3.*",
     "msgspec.*",
     "msgpack.*",
     "jose.*",
@@ -154,6 +189,13 @@ module = [
     "aiosqlite.*",
     "httpx.*",
     "cachetools.*",
+    "shiny.*",
+    "supabase.*",
+    "uvicorn.*",
+    "pyotp.*",
+    "qrcode.*",
+    "fido2.*",
+    "geoip2.*",
 ]
 ignore_errors = true
 
@@ -164,7 +206,6 @@ module = [
     "instanton.security.mtls",
     "instanton.security.certificates",
     "instanton.observability.tracing",
-    "instanton.core.fast_transport",
     "instanton.core.protocols",
     "instanton.auth.middleware",
     "instanton.auth.providers",

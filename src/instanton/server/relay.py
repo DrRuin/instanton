@@ -1,4 +1,4 @@
-"""Relay server implementation with TLS support and subdomain routing."""
+"""Relay server implementation with TLS support and subdomain/custom domain routing."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ import structlog
 from aiohttp import WSMsgType, web
 
 from instanton.core.config import ServerConfig
+from instanton.domains import DomainManager, DomainStore
 from instanton.protocol.messages import (
     ChunkAssembler,
     ChunkData,
@@ -34,6 +35,8 @@ from instanton.protocol.messages import (
     decode_message,
     encode_message,
 )
+from instanton.security.iprestrict import IPRestrictor, create_ip_restrictor
+from instanton.security.ratelimit import RateLimiter, create_rate_limiter
 
 logger = structlog.get_logger()
 
@@ -93,7 +96,7 @@ class RelayServer:
     # Can be overridden via config.subdomain_grace_period
     DEFAULT_SUBDOMAIN_GRACE_PERIOD = 1800.0  # 30 minutes in seconds
 
-    def __init__(self, config: ServerConfig):
+    def __init__(self, config: ServerConfig, domains_path: str | Path = "domains.json"):
         self.config = config
         self._tunnels: dict[str, TunnelConnection] = {}  # subdomain -> tunnel
         self._tunnel_by_id: dict[UUID, TunnelConnection] = {}
@@ -113,11 +116,28 @@ class RelayServer:
         self._next_udp_port = 20000  # UDP starts from 20000
         # Chunk assembler for handling large chunked responses from clients
         self._chunk_assembler = ChunkAssembler()
-        # Map stream_id -> (request_id, status, headers) for chunked responses
-        self._chunk_streams: dict[UUID, tuple[UUID, int, dict[str, str]]] = {}
+        # Map stream_id -> (created_at, request_id, status, headers) for chunked responses
+        self._chunk_streams: dict[UUID, tuple[float, UUID, int, dict[str, str]]] = {}
         # Subdomain reservations for disconnected clients
         # Allows clients to reconnect and reclaim the same subdomain
         self._reservations: dict[str, SubdomainReservation] = {}
+        # Custom domain support
+        self._domain_store = DomainStore(domains_path)
+        self._domain_manager = DomainManager(self._domain_store, config.base_domain)
+        # Rate limiting
+        self._rate_limiter: RateLimiter | None = None
+        if getattr(config, "rate_limit_enabled", False):
+            self._rate_limiter = create_rate_limiter(
+                requests_per_second=getattr(config, "rate_limit_rps", 100.0),
+                burst_size=getattr(config, "rate_limit_burst", 10),
+            )
+        # IP restrictions
+        self._ip_restrictor: IPRestrictor | None = None
+        if getattr(config, "ip_restrict_enabled", False):
+            self._ip_restrictor = create_ip_restrictor(
+                allow=getattr(config, "ip_allow", []),
+                deny=getattr(config, "ip_deny", []),
+            )
 
     @property
     def subdomain_grace_period(self) -> float:
@@ -322,6 +342,18 @@ class RelayServer:
             if ctx and not ctx.future.done():
                 ctx.future.set_exception(TimeoutError("Request timed out"))
             logger.debug("Cleaned up stale pending request", request_id=str(req_id))
+
+        # Clean up stale chunk streams (5 minute TTL for incomplete transfers)
+        chunk_ttl = 300.0
+        stale_streams = [
+            stream_id
+            for stream_id, (created, _, _, _) in self._chunk_streams.items()
+            if current_time - created > chunk_ttl
+        ]
+        for stream_id in stale_streams:
+            self._chunk_streams.pop(stream_id, None)
+            self._chunk_assembler.abort_stream(stream_id)
+            logger.debug("Cleaned up stale chunk stream", stream_id=str(stream_id))
 
     async def _handle_health_check(self, request: web.Request) -> web.Response:
         """Health check endpoint."""
@@ -617,6 +649,7 @@ class RelayServer:
                 if "Content-Type" not in headers:
                     headers["Content-Type"] = chunk_start.content_type
                 self._chunk_streams[chunk_start.stream_id] = (
+                    time.time(),
                     chunk_start.request_id,
                     chunk_start.status,
                     headers,
@@ -639,7 +672,7 @@ class RelayServer:
                     # If chunk failed, abort the stream and send error response
                     stream_info = self._chunk_streams.pop(chunk_data.stream_id, None)
                     if stream_info:
-                        request_id, _status, _headers = stream_info
+                        _created, request_id, _status, _headers = stream_info
                         ctx = self._pending_requests.get(request_id)
                         if ctx and not ctx.future.done():
                             error_response = HttpResponse(
@@ -655,7 +688,7 @@ class RelayServer:
                 chunk_end = ChunkEnd(**msg)
                 stream_info = self._chunk_streams.pop(chunk_end.stream_id, None)
                 if stream_info:
-                    request_id, status, headers = stream_info
+                    _created, request_id, status, headers = stream_info
                     try:
                         body = self._chunk_assembler.end_stream(chunk_end)
                         # Fix headers - remove Content-Length as we'll set it correctly
@@ -721,24 +754,76 @@ class RelayServer:
             )
 
     async def _handle_http_request(self, request: web.Request) -> web.StreamResponse:
-        """Handle incoming HTTP request and route to tunnel."""
-        host = request.host.split(":")[0]
+        """Handle incoming HTTP request and route to tunnel.
 
-        # Extract subdomain from host
-        subdomain = self._extract_subdomain(host)
+        Routing priority:
+        1. Custom domain (api.mycompany.com -> tunnel via DomainManager)
+        2. Subdomain (abc123.instanton.tech -> tunnel via subdomain lookup)
+        """
+        client_ip = request.remote or "unknown"
 
-        if not subdomain:
-            # Direct access to base domain - show landing page
-            return web.Response(
-                text="Instanton Relay Server\n\nTunnel through barriers, instantly",
-                content_type="text/plain",
-            )
+        # IP restrictions check (deny takes precedence)
+        if self._ip_restrictor:
+            ip_result = self._ip_restrictor.check(client_ip)
+            if not ip_result.allowed:
+                logger.warning(
+                    "IP blocked",
+                    ip=client_ip,
+                    reason=ip_result.reason,
+                    rule=ip_result.matched_rule,
+                )
+                return web.Response(
+                    text="Forbidden",
+                    status=403,
+                    content_type="text/plain",
+                )
 
-        # Find tunnel
-        tunnel = self._tunnels.get(subdomain)
+        # Rate limiting check
+        if self._rate_limiter:
+            limit_result = await self._rate_limiter.allow(client_ip, scope="ip")
+            if not limit_result.allowed:
+                logger.warning(
+                    "Rate limit exceeded",
+                    ip=client_ip,
+                    remaining=limit_result.remaining,
+                    reset_after=limit_result.reset_after,
+                )
+                return web.Response(
+                    text="Too Many Requests",
+                    status=429,
+                    content_type="text/plain",
+                    headers={
+                        "Retry-After": str(int(limit_result.reset_after) + 1),
+                        "X-RateLimit-Limit": str(limit_result.limit),
+                        "X-RateLimit-Remaining": str(limit_result.remaining),
+                    },
+                )
+
+        host = request.host.split(":")[0].lower()
+        subdomain: str | None = None
+
+        # Check custom domains first
+        tunnel = await self._find_tunnel_for_host(host)
+        if tunnel:
+            subdomain = tunnel.subdomain
+
+        if tunnel is None:
+            # Extract subdomain from host (for base domain subdomains)
+            subdomain = self._extract_subdomain(host)
+
+            if not subdomain:
+                # Direct access to base domain - show landing page
+                return web.Response(
+                    text="Instanton Relay Server\n\nTunnel through barriers, instantly",
+                    content_type="text/plain",
+                )
+
+            # Find tunnel by subdomain
+            tunnel = self._tunnels.get(subdomain)
+
         if not tunnel:
             # Check if subdomain is reserved (client disconnected, may reconnect)
-            if subdomain in self._reservations:
+            if subdomain and subdomain in self._reservations:
                 reservation = self._reservations[subdomain]
                 reserved_seconds = (datetime.now(UTC) - reservation.reserved_at).total_seconds()
                 remaining_seconds = max(0, self.subdomain_grace_period - reserved_seconds)
@@ -957,6 +1042,31 @@ class RelayServer:
             # Ensure it's a single subdomain (no nested subdomains)
             if "." not in subdomain:
                 return subdomain
+
+        return None
+
+    async def _find_tunnel_for_host(self, host: str) -> TunnelConnection | None:
+        """Find tunnel for a host, checking custom domains.
+
+        Args:
+            host: The hostname from the request.
+
+        Returns:
+            TunnelConnection if found via custom domain, None otherwise.
+        """
+        # Skip if host is the base domain or a subdomain of it
+        base_domain = self.config.base_domain.lower()
+        if host == base_domain or host.endswith(f".{base_domain}"):
+            return None
+
+        # Check if this is a registered custom domain
+        tunnel_id = await self._domain_manager.get_tunnel_for_domain(host)
+        if tunnel_id:
+            # Find the tunnel by subdomain (tunnel_id is stored as subdomain in our routing)
+            # The tunnel_id from domain manager maps to a subdomain
+            for tunnel in self._tunnels.values():
+                if str(tunnel.id) == tunnel_id or tunnel.subdomain == tunnel_id:
+                    return tunnel
 
         return None
 

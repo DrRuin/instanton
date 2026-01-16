@@ -1,12 +1,4 @@
-"""Transport layer abstraction with WebSocket and QUIC support, reconnection, and heartbeat.
-
-Key features for instant, reliable connections:
-- DNS caching and pre-resolution to avoid lookup delays
-- Immediate first connection attempt (no delay on first try)
-- Automatic reconnection with exponential backoff
-- Heartbeat monitoring for connection health
-- Connection state callbacks for UI feedback
-"""
+"""Transport layer with WebSocket/QUIC, reconnection, and heartbeat."""
 
 from __future__ import annotations
 
@@ -30,7 +22,7 @@ logger = structlog.get_logger()
 
 # DNS cache for faster reconnections
 _dns_cache: dict[str, tuple[str, float]] = {}
-_DNS_CACHE_TTL = 300.0  # 5 minutes
+_DNS_CACHE_TTL = 300.0
 
 # Sleep detection constants
 # If time.sleep(N) takes more than N + SLEEP_DETECTION_THRESHOLD seconds,
@@ -73,6 +65,9 @@ async def resolve_host(host: str) -> str:
             lambda: socket.gethostbyname(host),
         )
         _dns_cache[host] = (result, now)
+        # Periodically clean up expired entries to prevent unbounded growth
+        if len(_dns_cache) > 100:
+            _cleanup_dns_cache()
         logger.debug("DNS resolved", host=host, ip=result)
         return result
     except socket.gaierror as e:
@@ -83,6 +78,14 @@ async def resolve_host(host: str) -> str:
 def clear_dns_cache() -> None:
     """Clear the DNS cache."""
     _dns_cache.clear()
+
+
+def _cleanup_dns_cache() -> None:
+    """Remove expired entries from DNS cache."""
+    now = time.monotonic()
+    expired = [k for k, (_, ts) in _dns_cache.items() if now - ts > _DNS_CACHE_TTL]
+    for k in expired:
+        _dns_cache.pop(k, None)
 
 
 class ConnectionState(Enum):
@@ -244,6 +247,13 @@ class WebSocketTransport(Transport):
         # Sleep/wake detection
         self._last_sleep_check = time.monotonic()
         self._sleep_detected = False
+
+    def _track_task(self, coro: Any) -> asyncio.Task[Any]:
+        """Create and track a background task for proper cleanup."""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
 
     def on_connect(self, callback: Callable[[], Any]) -> None:
         """Register a callback for connection events."""
@@ -624,7 +634,7 @@ class WebSocketTransport(Transport):
             self._stats.messages_sent += 1
         except ConnectionClosed as e:
             logger.debug("Connection closed during send", code=e.code)
-            asyncio.create_task(self._handle_disconnect())
+            self._track_task(self._handle_disconnect())
             raise TransportConnectionError(f"Connection closed: {e}") from e
         except Exception as e:
             logger.error("Send error", error=str(e))
@@ -651,17 +661,17 @@ class WebSocketTransport(Transport):
 
         except ConnectionClosedOK:
             logger.debug("Connection closed normally")
-            asyncio.create_task(self._handle_disconnect())
+            self._track_task(self._handle_disconnect())
             return None
         except ConnectionClosedError as e:
             logger.debug("Connection closed with error", code=e.code, reason=e.reason)
-            asyncio.create_task(self._handle_disconnect())
+            self._track_task(self._handle_disconnect())
             return None
         except asyncio.CancelledError:
             return None
         except Exception as e:
             logger.error("Receive error", error=str(e))
-            asyncio.create_task(self._handle_disconnect())
+            self._track_task(self._handle_disconnect())
             return None
 
     async def close(self) -> None:
@@ -746,7 +756,7 @@ class QuicStreamHandler:
 
     def __init__(self, stream_id: int) -> None:
         self.stream_id = stream_id
-        self._recv_buffer: asyncio.Queue[bytes] = asyncio.Queue()
+        self._recv_buffer: asyncio.Queue[bytes] = asyncio.Queue(maxsize=10000)
         self._closed = False
         self._end_stream = False
 
@@ -800,7 +810,7 @@ class QuicClientProtocol:
         self._connected = asyncio.Event()
         self._closed = asyncio.Event()
         self._main_stream_id: int | None = None
-        self._recv_queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self._recv_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=10000)
         self._protocol: Any = None
         self._stats = TransportStats()
 
@@ -947,7 +957,7 @@ class QuicTransport(Transport):
         self._quic: Any = None
         self._protocol: Any = None
         self._connect_task: asyncio.Task[Any] | None = None
-        self._recv_queue: asyncio.Queue[bytes] = asyncio.Queue()
+        self._recv_queue: asyncio.Queue[bytes] = asyncio.Queue(maxsize=10000)
         self._streams: dict[int, QuicStreamHandler] = {}
         self._main_stream_id: int | None = None
         self._connected_event = asyncio.Event()
@@ -1208,7 +1218,7 @@ class QuicTransport(Transport):
                 # Reset events for new connection
                 self._connected_event.clear()
                 self._closed_event.clear()
-                self._recv_queue = asyncio.Queue()
+                self._recv_queue = asyncio.Queue(maxsize=10000)
                 self._streams.clear()
 
                 await self._do_connect(self._config.host, self._config.port)

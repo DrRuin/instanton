@@ -1,11 +1,4 @@
-"""Authentication middleware for Instanton.
-
-Provides:
-- AuthMiddleware for aiohttp
-- Auth extraction from headers and query params
-- Auth context injection
-- Permission checking
-"""
+"""Authentication middleware and auth context for aiohttp."""
 
 from __future__ import annotations
 
@@ -221,13 +214,10 @@ class AuthMiddleware:
         Returns:
             True if auth information is present.
         """
-        # Check common auth headers
         if request.headers.get("Authorization"):
             return True
         if request.headers.get("X-API-Key"):
             return True
-
-        # Check query params (for WebSocket)
         if request.query.get("token"):
             return True
         if request.query.get("access_token"):
@@ -243,7 +233,6 @@ class AuthMiddleware:
         Returns:
             AuthResult from the first successful provider.
         """
-        # Try each provider in order
         for provider in self.providers:
             result = await provider.authenticate(request=request)
             if result.authenticated:

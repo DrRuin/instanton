@@ -1,675 +1,615 @@
-"""Webhook provider implementations for signature verification."""
+"""Instanton Webhook Providers.
+
+Provider-specific webhook signature verification implementations for
+popular services like GitHub, Stripe, Slack, and Discord.
+
+Supported Providers:
+- GitHub: X-Hub-Signature-256 with HMAC-SHA256
+- Stripe: Stripe-Signature with timestamp validation
+- Slack: X-Slack-Signature with timestamp validation
+- Discord: X-Signature-Ed25519 with Ed25519 verification
+- Custom: Configurable HMAC-SHA256 verification
+
+Usage:
+    from instanton.webhooks.providers import GitHubWebhookProvider
+
+    provider = GitHubWebhookProvider(secret="github-webhook-secret")
+    result = provider.verify(request_body, request_headers)
+
+    if result.valid:
+        # Process webhook
+        pass
+"""
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
+
+from instanton.webhooks.verifier import (
+    VerificationResult,
+    VerificationStatus,
+    parse_signature_header,
+    parse_slack_signature,
+    parse_stripe_signature,
+)
 
 
-@dataclass
-class WebhookRequest:
-    """Webhook request data for verification."""
+class WebhookProvider(ABC):
+    """Base class for webhook providers.
 
-    headers: dict[str, str]
-    body: bytes
-    method: str = "POST"
-    path: str = "/"
-    timestamp: float | None = None  # Unix timestamp
+    Each provider implements its specific signature verification logic.
+    """
 
-
-@dataclass
-class VerificationConfig:
-    """Configuration for webhook verification."""
-
-    secret: str
-    tolerance_seconds: int = 300  # 5 minutes default
-    enforce: bool = True  # If False, log but don't reject
-
-
-class WebhookProviderBase(ABC):
-    """Base class for webhook provider implementations."""
-
-    name: str = "unknown"
-    description: str = ""
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Provider name."""
+        ...
 
     @abstractmethod
     def verify(
         self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        """Verify the webhook signature.
+        payload: bytes,
+        headers: dict[str, str],
+    ) -> VerificationResult:
+        """Verify webhook signature.
+
+        Args:
+            payload: Raw request body bytes.
+            headers: Request headers dictionary.
 
         Returns:
-            Tuple of (is_valid, error_message)
+            VerificationResult with status and details.
         """
-        pass
-
-    def _get_header(
-        self,
-        headers: dict[str, str],
-        name: str,
-        case_insensitive: bool = True,
-    ) -> str | None:
-        """Get a header value, optionally case-insensitive."""
-        if case_insensitive:
-            name_lower = name.lower()
-            for key, value in headers.items():
-                if key.lower() == name_lower:
-                    return value
-            return None
-        return headers.get(name)
-
-    def _hmac_sha256(self, key: bytes, message: bytes) -> bytes:
-        """Calculate HMAC-SHA256."""
-        return hmac.new(key, message, hashlib.sha256).digest()
-
-    def _hmac_sha256_hex(self, key: bytes, message: bytes) -> str:
-        """Calculate HMAC-SHA256 and return hex string."""
-        return hmac.new(key, message, hashlib.sha256).hexdigest()
-
-    def _hmac_sha1(self, key: bytes, message: bytes) -> bytes:
-        """Calculate HMAC-SHA1."""
-        return hmac.new(key, message, hashlib.sha1).digest()
-
-    def _hmac_sha1_hex(self, key: bytes, message: bytes) -> str:
-        """Calculate HMAC-SHA1 and return hex string."""
-        return hmac.new(key, message, hashlib.sha1).hexdigest()
+        ...
 
     def _constant_time_compare(self, a: str, b: str) -> bool:
-        """Constant-time string comparison to prevent timing attacks."""
-        return hmac.compare_digest(a, b)
+        """Constant-time string comparison."""
+        return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
+
+    def _compute_hmac_sha256(self, payload: bytes, secret: str) -> str:
+        """Compute HMAC-SHA256 signature."""
+        return hmac.new(
+            secret.encode("utf-8"),
+            payload,
+            hashlib.sha256,
+        ).hexdigest()
 
 
-class GitHubWebhook(WebhookProviderBase):
-    """GitHub webhook signature verification."""
+@dataclass
+class GitHubWebhookProvider(WebhookProvider):
+    """GitHub webhook signature verification.
 
-    name = "github"
-    description = "GitHub webhooks use HMAC-SHA256 signature in X-Hub-Signature-256 header"
+    GitHub sends: X-Hub-Signature-256: sha256=<signature>
 
-    def verify(
-        self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        # Get signature header
-        signature = self._get_header(request.headers, "X-Hub-Signature-256")
-        if not signature:
-            # Fall back to SHA1
-            signature = self._get_header(request.headers, "X-Hub-Signature")
-            if not signature:
-                return False, "Missing signature header"
+    Uses HMAC-SHA256 for signature verification.
+    """
 
-            if not signature.startswith("sha1="):
-                return False, "Invalid signature format"
+    secret: str
+    """Webhook secret configured in GitHub."""
 
-            expected = "sha1=" + self._hmac_sha1_hex(config.secret.encode(), request.body)
-            if not self._constant_time_compare(signature, expected):
-                return False, "Invalid signature"
-            return True, ""
+    signature_header: str = "X-Hub-Signature-256"
+    """Header containing the signature."""
 
-        if not signature.startswith("sha256="):
-            return False, "Invalid signature format"
-
-        expected = "sha256=" + self._hmac_sha256_hex(config.secret.encode(), request.body)
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
-
-        return True, ""
-
-
-class StripeWebhook(WebhookProviderBase):
-    """Stripe webhook signature verification."""
-
-    name = "stripe"
-    description = "Stripe uses signed timestamps with HMAC-SHA256"
+    @property
+    def name(self) -> str:
+        return "github"
 
     def verify(
         self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        signature_header = self._get_header(request.headers, "Stripe-Signature")
+        payload: bytes,
+        headers: dict[str, str],
+    ) -> VerificationResult:
+        """Verify GitHub webhook signature.
+
+        Args:
+            payload: Raw request body.
+            headers: Request headers.
+
+        Returns:
+            VerificationResult with status.
+        """
+        # Get signature header (case-insensitive lookup)
+        signature_header = None
+        for key, value in headers.items():
+            if key.lower() == self.signature_header.lower():
+                signature_header = value
+                break
+
         if not signature_header:
-            return False, "Missing Stripe-Signature header"
+            return VerificationResult(
+                valid=False,
+                status=VerificationStatus.MISSING_SIGNATURE,
+                error=f"Missing {self.signature_header} header",
+                provider=self.name,
+            )
+
+        # Parse signature (remove sha256= prefix)
+        signature = parse_signature_header(signature_header, prefix="sha256=")
+        if not signature:
+            return VerificationResult(
+                valid=False,
+                status=VerificationStatus.INVALID_FORMAT,
+                error="Invalid signature format",
+                provider=self.name,
+            )
+
+        # Compute expected signature
+        expected = self._compute_hmac_sha256(payload, self.secret)
+
+        if self._constant_time_compare(signature, expected):
+            return VerificationResult(
+                valid=True,
+                status=VerificationStatus.VALID,
+                provider=self.name,
+            )
+
+        return VerificationResult(
+            valid=False,
+            status=VerificationStatus.INVALID_SIGNATURE,
+            error="Signature mismatch",
+            provider=self.name,
+        )
+
+
+@dataclass
+class StripeWebhookProvider(WebhookProvider):
+    """Stripe webhook signature verification.
+
+    Stripe sends: Stripe-Signature: t=<timestamp>,v1=<signature>
+
+    Includes timestamp validation to prevent replay attacks.
+    """
+
+    secret: str
+    """Webhook signing secret from Stripe dashboard."""
+
+    signature_header: str = "Stripe-Signature"
+    """Header containing the signature."""
+
+    tolerance_seconds: int = 300
+    """Maximum age of timestamp (default 5 minutes)."""
+
+    @property
+    def name(self) -> str:
+        return "stripe"
+
+    def verify(
+        self,
+        payload: bytes,
+        headers: dict[str, str],
+    ) -> VerificationResult:
+        """Verify Stripe webhook signature.
+
+        Args:
+            payload: Raw request body.
+            headers: Request headers.
+
+        Returns:
+            VerificationResult with status.
+        """
+        # Get signature header
+        signature_header = None
+        for key, value in headers.items():
+            if key.lower() == self.signature_header.lower():
+                signature_header = value
+                break
+
+        if not signature_header:
+            return VerificationResult(
+                valid=False,
+                status=VerificationStatus.MISSING_SIGNATURE,
+                error=f"Missing {self.signature_header} header",
+                provider=self.name,
+            )
 
         # Parse signature header
-        elements = {}
-        for item in signature_header.split(","):
-            key, _, value = item.partition("=")
-            elements[key.strip()] = value.strip()
+        parsed = parse_stripe_signature(signature_header)
+        if not parsed:
+            return VerificationResult(
+                valid=False,
+                status=VerificationStatus.INVALID_FORMAT,
+                error="Invalid Stripe-Signature format",
+                provider=self.name,
+            )
 
-        timestamp = elements.get("t")
-        signature = elements.get("v1")
-
-        if not timestamp or not signature:
-            return False, "Invalid signature header format"
-
-        # Check timestamp
-        try:
-            ts = int(timestamp)
-        except ValueError:
-            return False, "Invalid timestamp"
-
-        if abs(time.time() - ts) > config.tolerance_seconds:
-            return False, "Timestamp outside tolerance window"
-
-        # Compute expected signature
-        signed_payload = f"{timestamp}.{request.body.decode('utf-8')}"
-        expected = self._hmac_sha256_hex(config.secret.encode(), signed_payload.encode())
-
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
-
-        return True, ""
-
-
-class SlackWebhook(WebhookProviderBase):
-    """Slack webhook signature verification."""
-
-    name = "slack"
-    description = "Slack uses signed timestamps with HMAC-SHA256"
-
-    def verify(
-        self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        signature = self._get_header(request.headers, "X-Slack-Signature")
-        timestamp = self._get_header(request.headers, "X-Slack-Request-Timestamp")
-
-        if not signature or not timestamp:
-            return False, "Missing Slack signature headers"
+        timestamp = parsed["timestamp"]
+        signature = parsed["signature"]
 
         # Check timestamp
-        try:
-            ts = int(timestamp)
-        except ValueError:
-            return False, "Invalid timestamp"
+        current_time = int(time.time())
+        if abs(current_time - timestamp) > self.tolerance_seconds:
+            return VerificationResult(
+                valid=False,
+                status=VerificationStatus.EXPIRED_TIMESTAMP,
+                error="Timestamp outside tolerance window",
+                provider=self.name,
+                timestamp=timestamp,
+            )
 
-        if abs(time.time() - ts) > config.tolerance_seconds:
-            return False, "Timestamp outside tolerance window"
+        # Compute expected signature: signed_payload = timestamp + "." + payload
+        signed_payload = f"{timestamp}.".encode() + payload
+        expected = self._compute_hmac_sha256(signed_payload, self.secret)
 
-        if not signature.startswith("v0="):
-            return False, "Invalid signature format"
+        if self._constant_time_compare(signature, expected):
+            return VerificationResult(
+                valid=True,
+                status=VerificationStatus.VALID,
+                provider=self.name,
+                timestamp=timestamp,
+            )
 
-        # Compute expected signature
-        base_string = f"v0:{timestamp}:{request.body.decode('utf-8')}"
-        expected = "v0=" + self._hmac_sha256_hex(config.secret.encode(), base_string.encode())
-
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
-
-        return True, ""
-
-
-class TwilioWebhook(WebhookProviderBase):
-    """Twilio webhook signature verification."""
-
-    name = "twilio"
-    description = "Twilio uses HMAC-SHA1 signature"
-
-    def verify(
-        self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        signature = self._get_header(request.headers, "X-Twilio-Signature")
-        if not signature:
-            return False, "Missing X-Twilio-Signature header"
-
-        # Twilio signature is computed from URL + sorted POST params
-        # For simplicity, we use the raw body
-        url = request.path
-        expected = base64.b64encode(
-            self._hmac_sha1(config.secret.encode(), (url + request.body.decode()).encode())
-        ).decode()
-
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
-
-        return True, ""
+        return VerificationResult(
+            valid=False,
+            status=VerificationStatus.INVALID_SIGNATURE,
+            error="Signature mismatch",
+            provider=self.name,
+            timestamp=timestamp,
+        )
 
 
-class ShopifyWebhook(WebhookProviderBase):
-    """Shopify webhook signature verification."""
+@dataclass
+class SlackWebhookProvider(WebhookProvider):
+    """Slack webhook signature verification.
 
-    name = "shopify"
-    description = "Shopify uses HMAC-SHA256 with base64 encoding"
+    Slack sends:
+    - X-Slack-Signature: v0=<signature>
+    - X-Slack-Request-Timestamp: <timestamp>
 
-    def verify(
-        self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        signature = self._get_header(request.headers, "X-Shopify-Hmac-Sha256")
-        if not signature:
-            return False, "Missing X-Shopify-Hmac-Sha256 header"
+    Signature is computed over: v0:{timestamp}:{body}
+    """
 
-        expected = base64.b64encode(
-            self._hmac_sha256(config.secret.encode(), request.body)
-        ).decode()
+    secret: str
+    """Slack signing secret."""
 
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
+    signature_header: str = "X-Slack-Signature"
+    """Header containing the signature."""
 
-        return True, ""
+    timestamp_header: str = "X-Slack-Request-Timestamp"
+    """Header containing the timestamp."""
 
+    tolerance_seconds: int = 300
+    """Maximum age of timestamp (default 5 minutes)."""
 
-class SendGridWebhook(WebhookProviderBase):
-    """SendGrid webhook signature verification."""
-
-    name = "sendgrid"
-    description = "SendGrid Event Webhook uses ECDSA signature"
+    @property
+    def name(self) -> str:
+        return "slack"
 
     def verify(
         self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        signature = self._get_header(request.headers, "X-Twilio-Email-Event-Webhook-Signature")
-        timestamp = self._get_header(request.headers, "X-Twilio-Email-Event-Webhook-Timestamp")
+        payload: bytes,
+        headers: dict[str, str],
+    ) -> VerificationResult:
+        """Verify Slack webhook signature.
 
-        if not signature or not timestamp:
-            return False, "Missing SendGrid signature headers"
+        Args:
+            payload: Raw request body.
+            headers: Request headers.
+
+        Returns:
+            VerificationResult with status.
+        """
+        # Get headers (case-insensitive)
+        signature_header = None
+        timestamp_header = None
+        for key, value in headers.items():
+            if key.lower() == self.signature_header.lower():
+                signature_header = value
+            elif key.lower() == self.timestamp_header.lower():
+                timestamp_header = value
+
+        if not signature_header or not timestamp_header:
+            return VerificationResult(
+                valid=False,
+                status=VerificationStatus.MISSING_SIGNATURE,
+                error="Missing Slack signature or timestamp header",
+                provider=self.name,
+            )
+
+        # Parse headers
+        parsed = parse_slack_signature(signature_header, timestamp_header)
+        if not parsed:
+            return VerificationResult(
+                valid=False,
+                status=VerificationStatus.INVALID_FORMAT,
+                error="Invalid Slack signature format",
+                provider=self.name,
+            )
+
+        timestamp = parsed["timestamp"]
+        signature = parsed["signature"]
 
         # Check timestamp
-        try:
-            ts = int(timestamp)
-        except ValueError:
-            return False, "Invalid timestamp"
+        current_time = int(time.time())
+        if abs(current_time - timestamp) > self.tolerance_seconds:
+            return VerificationResult(
+                valid=False,
+                status=VerificationStatus.EXPIRED_TIMESTAMP,
+                error="Timestamp outside tolerance window",
+                provider=self.name,
+                timestamp=timestamp,
+            )
 
-        if abs(time.time() - ts) > config.tolerance_seconds:
-            return False, "Timestamp outside tolerance window"
+        # Compute expected signature: v0:{timestamp}:{body}
+        sig_basestring = f"v0:{timestamp}:".encode() + payload
+        expected = self._compute_hmac_sha256(sig_basestring, self.secret)
 
-        # For ECDSA verification, we'd need cryptography library
-        # For now, use a simplified HMAC approach if secret is provided
-        payload = timestamp + request.body.decode()
-        # Compute HMAC for verification (SendGrid uses ECDSA in production)
-        _ = self._hmac_sha256_hex(config.secret.encode(), payload.encode())
+        if self._constant_time_compare(signature, expected):
+            return VerificationResult(
+                valid=True,
+                status=VerificationStatus.VALID,
+                provider=self.name,
+                timestamp=timestamp,
+            )
 
-        # SendGrid uses base64 ECDSA, but we fallback to simplified verification
-        # In production, use proper ECDSA verification with cryptography library
-        return True, ""  # Simplified for now
+        return VerificationResult(
+            valid=False,
+            status=VerificationStatus.INVALID_SIGNATURE,
+            error="Signature mismatch",
+            provider=self.name,
+            timestamp=timestamp,
+        )
 
 
-class MailgunWebhook(WebhookProviderBase):
-    """Mailgun webhook signature verification."""
+@dataclass
+class DiscordWebhookProvider(WebhookProvider):
+    """Discord webhook signature verification.
 
-    name = "mailgun"
-    description = "Mailgun uses HMAC-SHA256 with timestamp"
+    Discord sends:
+    - X-Signature-Ed25519: <signature>
+    - X-Signature-Timestamp: <timestamp>
+
+    Uses Ed25519 for signature verification (not HMAC).
+    """
+
+    public_key: str
+    """Discord application public key (hex encoded)."""
+
+    signature_header: str = "X-Signature-Ed25519"
+    """Header containing the signature."""
+
+    timestamp_header: str = "X-Signature-Timestamp"
+    """Header containing the timestamp."""
+
+    @property
+    def name(self) -> str:
+        return "discord"
 
     def verify(
         self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        import json
+        payload: bytes,
+        headers: dict[str, str],
+    ) -> VerificationResult:
+        """Verify Discord webhook signature using Ed25519.
+
+        Args:
+            payload: Raw request body.
+            headers: Request headers.
+
+        Returns:
+            VerificationResult with status.
+        """
+        # Get headers (case-insensitive)
+        signature_header = None
+        timestamp_header = None
+        for key, value in headers.items():
+            if key.lower() == self.signature_header.lower():
+                signature_header = value
+            elif key.lower() == self.timestamp_header.lower():
+                timestamp_header = value
+
+        if not signature_header or not timestamp_header:
+            return VerificationResult(
+                valid=False,
+                status=VerificationStatus.MISSING_SIGNATURE,
+                error="Missing Discord signature or timestamp header",
+                provider=self.name,
+            )
 
         try:
-            data = json.loads(request.body)
-            signature_data = data.get("signature", {})
-            timestamp = signature_data.get("timestamp")
-            token = signature_data.get("token")
-            signature = signature_data.get("signature")
-        except (json.JSONDecodeError, KeyError):
-            return False, "Invalid request body format"
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+                Ed25519PublicKey,
+            )
 
-        if not timestamp or not token or not signature:
-            return False, "Missing signature fields in body"
+            # Parse keys
+            public_key_bytes = bytes.fromhex(self.public_key)
+            signature_bytes = bytes.fromhex(signature_header)
 
-        # Check timestamp
-        try:
-            ts = int(timestamp)
-        except ValueError:
-            return False, "Invalid timestamp"
+            # Load public key
+            public_key = Ed25519PublicKey.from_public_bytes(public_key_bytes)
 
-        if abs(time.time() - ts) > config.tolerance_seconds:
-            return False, "Timestamp outside tolerance window"
+            # Message is timestamp + body
+            message = timestamp_header.encode() + payload
+
+            # Verify signature
+            public_key.verify(signature_bytes, message)
+
+            return VerificationResult(
+                valid=True,
+                status=VerificationStatus.VALID,
+                provider=self.name,
+            )
+
+        except ImportError:
+            return VerificationResult(
+                valid=False,
+                status=VerificationStatus.INVALID_FORMAT,
+                error="cryptography library required for Ed25519 verification",
+                provider=self.name,
+            )
+        except ValueError as e:
+            return VerificationResult(
+                valid=False,
+                status=VerificationStatus.INVALID_FORMAT,
+                error=f"Invalid key or signature format: {e}",
+                provider=self.name,
+            )
+        except Exception:
+            return VerificationResult(
+                valid=False,
+                status=VerificationStatus.INVALID_SIGNATURE,
+                error="Signature verification failed",
+                provider=self.name,
+            )
+
+
+@dataclass
+class CustomWebhookProvider(WebhookProvider):
+    """Custom webhook signature verification.
+
+    Configurable provider for custom webhook implementations.
+    """
+
+    secret: str
+    """Shared secret for HMAC computation."""
+
+    provider_name: str = "custom"
+    """Name to identify this provider."""
+
+    signature_header: str = "X-Webhook-Signature"
+    """Header containing the signature."""
+
+    signature_prefix: str = ""
+    """Prefix to strip from signature (e.g., 'sha256=')."""
+
+    timestamp_header: str | None = None
+    """Optional header containing timestamp."""
+
+    tolerance_seconds: int = 300
+    """Maximum age of timestamp if timestamp_header is set."""
+
+    include_timestamp_in_payload: bool = False
+    """Whether to include timestamp in signed payload."""
+
+    @property
+    def name(self) -> str:
+        return self.provider_name
+
+    def verify(
+        self,
+        payload: bytes,
+        headers: dict[str, str],
+    ) -> VerificationResult:
+        """Verify custom webhook signature.
+
+        Args:
+            payload: Raw request body.
+            headers: Request headers.
+
+        Returns:
+            VerificationResult with status.
+        """
+        # Get signature header
+        signature_value = None
+        for key, value in headers.items():
+            if key.lower() == self.signature_header.lower():
+                signature_value = value
+                break
+
+        if not signature_value:
+            return VerificationResult(
+                valid=False,
+                status=VerificationStatus.MISSING_SIGNATURE,
+                error=f"Missing {self.signature_header} header",
+                provider=self.name,
+            )
+
+        # Strip prefix if configured
+        signature = signature_value
+        if self.signature_prefix and signature.startswith(self.signature_prefix):
+            signature = signature[len(self.signature_prefix) :]
+
+        # Handle timestamp if configured
+        timestamp = None
+        if self.timestamp_header:
+            for key, value in headers.items():
+                if key.lower() == self.timestamp_header.lower():
+                    try:
+                        timestamp = int(value)
+                    except ValueError:
+                        return VerificationResult(
+                            valid=False,
+                            status=VerificationStatus.INVALID_TIMESTAMP,
+                            error="Invalid timestamp format",
+                            provider=self.name,
+                        )
+                    break
+
+            if timestamp is None:
+                return VerificationResult(
+                    valid=False,
+                    status=VerificationStatus.MISSING_SIGNATURE,
+                    error=f"Missing {self.timestamp_header} header",
+                    provider=self.name,
+                )
+
+            # Check timestamp tolerance
+            current_time = int(time.time())
+            if abs(current_time - timestamp) > self.tolerance_seconds:
+                return VerificationResult(
+                    valid=False,
+                    status=VerificationStatus.EXPIRED_TIMESTAMP,
+                    error="Timestamp outside tolerance window",
+                    provider=self.name,
+                    timestamp=timestamp,
+                )
 
         # Compute expected signature
-        expected = self._hmac_sha256_hex(config.secret.encode(), f"{timestamp}{token}".encode())
-
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
-
-        return True, ""
-
-
-class PaddleWebhook(WebhookProviderBase):
-    """Paddle webhook signature verification."""
-
-    name = "paddle"
-    description = "Paddle uses PHP serialize format with SHA1"
-
-    def verify(
-        self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        # Paddle Classic uses p_signature in form data
-        # For simplicity, check for signature in body
-        signature = self._get_header(request.headers, "Paddle-Signature")
-
-        if not signature:
-            # Try to extract from body (form data)
-            return True, ""  # Simplified
-
-        # Verify signature
-        expected = self._hmac_sha256_hex(config.secret.encode(), request.body)
-
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
-
-        return True, ""
-
-
-class IntercomWebhook(WebhookProviderBase):
-    """Intercom webhook signature verification."""
-
-    name = "intercom"
-    description = "Intercom uses HMAC-SHA1"
-
-    def verify(
-        self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        signature = self._get_header(request.headers, "X-Hub-Signature")
-        if not signature:
-            return False, "Missing X-Hub-Signature header"
-
-        if not signature.startswith("sha1="):
-            return False, "Invalid signature format"
-
-        expected = "sha1=" + self._hmac_sha1_hex(config.secret.encode(), request.body)
-
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
-
-        return True, ""
-
-
-class DropboxWebhook(WebhookProviderBase):
-    """Dropbox webhook signature verification."""
-
-    name = "dropbox"
-    description = "Dropbox uses HMAC-SHA256"
-
-    def verify(
-        self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        signature = self._get_header(request.headers, "X-Dropbox-Signature")
-        if not signature:
-            return False, "Missing X-Dropbox-Signature header"
-
-        expected = self._hmac_sha256_hex(config.secret.encode(), request.body)
-
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
-
-        return True, ""
-
-
-class GenericHmacSha256Webhook(WebhookProviderBase):
-    """Generic HMAC-SHA256 webhook verification."""
-
-    name = "generic_hmac_sha256"
-    description = "Generic HMAC-SHA256 signature verification"
-
-    def __init__(self, header_name: str = "X-Signature"):
-        self.header_name = header_name
-
-    def verify(
-        self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        signature = self._get_header(request.headers, self.header_name)
-        if not signature:
-            return False, f"Missing {self.header_name} header"
-
-        # Handle various signature formats
-        if signature.startswith("sha256="):
-            signature = signature[7:]
-
-        expected = self._hmac_sha256_hex(config.secret.encode(), request.body)
-
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
-
-        return True, ""
-
-
-class BitbucketWebhook(WebhookProviderBase):
-    """Bitbucket webhook signature verification."""
-
-    name = "bitbucket"
-    description = "Bitbucket uses HMAC-SHA256"
-
-    def verify(
-        self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        signature = self._get_header(request.headers, "X-Hub-Signature")
-        if not signature:
-            return False, "Missing X-Hub-Signature header"
-
-        if not signature.startswith("sha256="):
-            return False, "Invalid signature format"
-
-        expected = "sha256=" + self._hmac_sha256_hex(config.secret.encode(), request.body)
-
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
-
-        return True, ""
-
-
-class GitLabWebhook(WebhookProviderBase):
-    """GitLab webhook signature verification."""
-
-    name = "gitlab"
-    description = "GitLab uses secret token in X-Gitlab-Token header"
-
-    def verify(
-        self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        token = self._get_header(request.headers, "X-Gitlab-Token")
-        if not token:
-            return False, "Missing X-Gitlab-Token header"
-
-        if not self._constant_time_compare(token, config.secret):
-            return False, "Invalid token"
-
-        return True, ""
-
-
-class LinearWebhook(WebhookProviderBase):
-    """Linear webhook signature verification."""
-
-    name = "linear"
-    description = "Linear uses HMAC-SHA256"
-
-    def verify(
-        self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        signature = self._get_header(request.headers, "Linear-Signature")
-        if not signature:
-            return False, "Missing Linear-Signature header"
-
-        expected = self._hmac_sha256_hex(config.secret.encode(), request.body)
-
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
-
-        return True, ""
-
-
-class SquareWebhook(WebhookProviderBase):
-    """Square webhook signature verification."""
-
-    name = "square"
-    description = "Square uses HMAC-SHA256 with base64"
-
-    def verify(
-        self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        signature = self._get_header(request.headers, "X-Square-Hmacsha256-Signature")
-        if not signature:
-            return False, "Missing X-Square-Hmacsha256-Signature header"
-
-        # Square notification URL is part of the signature
-        url = request.path
-        payload = url + request.body.decode()
-        expected = base64.b64encode(
-            self._hmac_sha256(config.secret.encode(), payload.encode())
-        ).decode()
-
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
-
-        return True, ""
-
-
-class PagerDutyWebhook(WebhookProviderBase):
-    """PagerDuty webhook signature verification."""
-
-    name = "pagerduty"
-    description = "PagerDuty uses HMAC-SHA256 signature"
-
-    def verify(
-        self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        signature = self._get_header(request.headers, "X-PagerDuty-Signature")
-        if not signature:
-            return False, "Missing X-PagerDuty-Signature header"
-
-        # Remove v1= prefix if present
-        if "=" in signature:
-            signature = signature.split("=")[1]
-
-        expected = self._hmac_sha256_hex(config.secret.encode(), request.body)
-
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
-
-        return True, ""
-
-
-class ZendeskWebhook(WebhookProviderBase):
-    """Zendesk webhook signature verification."""
-
-    name = "zendesk"
-    description = "Zendesk uses HMAC-SHA256 with timestamp"
-
-    def verify(
-        self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        signature = self._get_header(request.headers, "X-Zendesk-Webhook-Signature")
-        timestamp = self._get_header(request.headers, "X-Zendesk-Webhook-Signature-Timestamp")
-
-        if not signature or not timestamp:
-            return False, "Missing Zendesk signature headers"
-
-        # Compute expected signature
-        payload = timestamp + request.body.decode()
-        expected = base64.b64encode(
-            self._hmac_sha256(config.secret.encode(), payload.encode())
-        ).decode()
-
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
-
-        return True, ""
-
-
-class HubSpotWebhook(WebhookProviderBase):
-    """HubSpot webhook signature verification."""
-
-    name = "hubspot"
-    description = "HubSpot uses HMAC-SHA256 with client secret"
-
-    def verify(
-        self,
-        request: WebhookRequest,
-        config: VerificationConfig,
-    ) -> tuple[bool, str]:
-        # HubSpot v3 signature
-        signature = self._get_header(request.headers, "X-HubSpot-Signature-v3")
-        timestamp = self._get_header(request.headers, "X-HubSpot-Request-Timestamp")
-
-        if signature and timestamp:
-            # v3 signature
-            method = request.method
-            url = request.path
-            payload = f"{method}{url}{request.body.decode()}{timestamp}"
-            expected = base64.b64encode(
-                self._hmac_sha256(config.secret.encode(), payload.encode())
-            ).decode()
-
-            if not self._constant_time_compare(signature, expected):
-                return False, "Invalid v3 signature"
-            return True, ""
-
-        # Fall back to v1/v2 signature
-        signature = self._get_header(request.headers, "X-HubSpot-Signature")
-        if not signature:
-            return False, "Missing HubSpot signature header"
-
-        # v1 signature is SHA256 of client secret + body
-        payload = config.secret + request.body.decode()
-        expected = hashlib.sha256(payload.encode()).hexdigest()
-
-        if not self._constant_time_compare(signature, expected):
-            return False, "Invalid signature"
-
-        return True, ""
-
-
-# Registry of supported providers
-SUPPORTED_PROVIDERS: dict[str, type[WebhookProviderBase]] = {
-    "github": GitHubWebhook,
-    "stripe": StripeWebhook,
-    "slack": SlackWebhook,
-    "twilio": TwilioWebhook,
-    "shopify": ShopifyWebhook,
-    "sendgrid": SendGridWebhook,
-    "mailgun": MailgunWebhook,
-    "paddle": PaddleWebhook,
-    "intercom": IntercomWebhook,
-    "dropbox": DropboxWebhook,
-    "bitbucket": BitbucketWebhook,
-    "gitlab": GitLabWebhook,
-    "linear": LinearWebhook,
-    "square": SquareWebhook,
-    "pagerduty": PagerDutyWebhook,
-    "zendesk": ZendeskWebhook,
-    "hubspot": HubSpotWebhook,
-    "generic_hmac_sha256": GenericHmacSha256Webhook,
+        if self.include_timestamp_in_payload and timestamp is not None:
+            signed_payload = f"{timestamp}.".encode() + payload
+            expected = self._compute_hmac_sha256(signed_payload, self.secret)
+        else:
+            expected = self._compute_hmac_sha256(payload, self.secret)
+
+        if self._constant_time_compare(signature, expected):
+            return VerificationResult(
+                valid=True,
+                status=VerificationStatus.VALID,
+                provider=self.name,
+                timestamp=timestamp,
+            )
+
+        return VerificationResult(
+            valid=False,
+            status=VerificationStatus.INVALID_SIGNATURE,
+            error="Signature mismatch",
+            provider=self.name,
+            timestamp=timestamp,
+        )
+
+
+# Provider registry
+WEBHOOK_PROVIDERS: dict[str, type[WebhookProvider]] = {
+    "github": GitHubWebhookProvider,
+    "stripe": StripeWebhookProvider,
+    "slack": SlackWebhookProvider,
+    "discord": DiscordWebhookProvider,
+    "custom": CustomWebhookProvider,
 }
 
 
-def get_provider(name: str) -> WebhookProviderBase | None:
-    """Get a webhook provider by name."""
-    provider_class = SUPPORTED_PROVIDERS.get(name.lower())
-    if provider_class:
-        return provider_class()
-    return None
+def get_provider(
+    provider_name: str,
+    **kwargs: Any,
+) -> WebhookProvider:
+    """Get a webhook provider by name.
+
+    Args:
+        provider_name: Name of the provider.
+        **kwargs: Provider-specific configuration.
+
+    Returns:
+        Configured WebhookProvider instance.
+
+    Raises:
+        ValueError: If provider is not found.
+    """
+    provider_class = WEBHOOK_PROVIDERS.get(provider_name.lower())
+    if not provider_class:
+        raise ValueError(f"Unknown webhook provider: {provider_name}")
+    return provider_class(**kwargs)

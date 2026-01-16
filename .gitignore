@@ -141,3 +141,6 @@ prn
 aux
 com[1-9]
 lpt[1-9]
+
+# mcp
+.mcp.json

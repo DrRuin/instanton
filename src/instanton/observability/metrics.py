@@ -1,12 +1,4 @@
-"""Prometheus metrics for Instanton tunnel application.
-
-This module provides comprehensive Prometheus metrics including:
-- Counters for requests, errors, and connections
-- Gauges for active tunnels, connections, and memory usage
-- Histograms for request duration and response sizes
-- Custom metrics registry
-- HTTP endpoint for metrics exposure
-"""
+"""Prometheus metrics: counters, gauges, and histograms for tunnel operations."""
 
 from __future__ import annotations
 

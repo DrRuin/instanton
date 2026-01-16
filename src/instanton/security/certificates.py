@@ -210,7 +210,6 @@ def generate_self_signed_cert(
     Returns:
         Tuple of (cert_pem, key_pem)
     """
-    # Generate private key
     if key_type == "EC":
         if key_size == 256:
             curve = ec.SECP256R1()
@@ -225,7 +224,6 @@ def generate_self_signed_cert(
             key_size=key_size,
         )
 
-    # Generate certificate
     subject = issuer = x509.Name(
         [
             x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
@@ -343,22 +341,11 @@ class ACMEClient:
         Returns:
             Tuple of (cert_pem, key_pem, chain_pem)
 
-        Note: This is a simplified implementation. For production use,
-        consider using an established ACME library like acme or certbot.
+        Note: For production, use an established ACME library like certbot.
         """
-        # For a full implementation, you would:
-        # 1. Create an order for the domains
-        # 2. Get authorizations for each domain
-        # 3. Complete HTTP-01 or DNS-01 challenges
-        # 4. Finalize the order with a CSR
-        # 5. Download the certificate
-
-        # This is a placeholder - actual ACME implementation requires
-        # proper JWS signing and challenge handling
         raise NotImplementedError(
-            "Full ACME implementation pending. "
-            "Use generate_self_signed_cert() for development or "
-            "provide pre-existing certificates."
+            "Full ACME implementation pending. Use generate_self_signed_cert() "
+            "for development or provide pre-existing certificates."
         )
 
 

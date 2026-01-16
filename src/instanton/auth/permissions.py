@@ -13,13 +13,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import wraps
-from typing import TYPE_CHECKING
 
 from aiohttp import web
-
-if TYPE_CHECKING:
-    pass
-
 
 # ==============================================================================
 # Permissions

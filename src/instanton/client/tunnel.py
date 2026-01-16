@@ -862,6 +862,9 @@ class TunnelClient:
                 await self._transport.close()
             self._transport = None
 
+        # Clear callbacks to prevent accumulation
+        self._state_hooks.clear()
+
         logger.info("Tunnel closed", stats=self.stats)
 
     async def __aenter__(self) -> TunnelClient:

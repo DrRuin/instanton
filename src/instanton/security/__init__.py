@@ -1,18 +1,15 @@
 """Security module for Instanton tunnel application.
 
-This module provides comprehensive security features including:
-- Rate limiting and DDoS protection
-- Firewall capabilities
+This module provides security features including:
 - Certificate management and mTLS
-- OWASP security hardening
 - TLS hardening
-- Request/Response sanitization
-- Zero Trust Network Access (ZTNA)
-- Full ACME/LetsEncrypt support (from scratch)
-- Caddy-style automatic TLS (from scratch)
-- sslip.io-style wildcard DNS (from scratch)
+- Full ACME/LetsEncrypt support
+- Caddy-style automatic TLS
+- sslip.io-style wildcard DNS
 - instanton.tech domain management
 - Self-hosted relay server support
+- Rate limiting (sliding window)
+- IP restrictions (CIDR allow/deny)
 """
 
 # Full ACME/LetsEncrypt support (from scratch)
@@ -70,36 +67,32 @@ from instanton.security.certmanager import (
     CertificateStore as CertStore,
 )
 
-# DDoS protection (existing)
-from instanton.security.ddos import (
-    ConnectionTracker,
-    DDoSProtector,
-    IPReputationTracker,
-    RequestFingerprint,
+# High-Performance Hashing (BLAKE3)
+from instanton.security.hashing import (
+    BLAKE3_AVAILABLE,
+    HashAlgorithm,
+    Hasher,
+    HashResult,
+    compute_checksum,
+    fast_hash,
+    fingerprint_request,
+    get_available_algorithm,
+    hash_api_key,
+    hash_file,
+    hash_password,
+    hash_stream,
+    verify_checksum,
 )
 
-# Firewall (existing)
-from instanton.security.firewall import (
-    Firewall,
-    FirewallRule,
-    RuleAction,
+# IP Restrictions
+from instanton.security.iprestrict import (
+    IPCheckResult,
+    IPPolicy,
+    IPRestrictor,
+    create_ip_restrictor,
 )
 
-# OWASP Security Hardening (new)
-from instanton.security.hardening import (
-    ConnectionLimiter,
-    InputValidator,
-    RequestSmugglingDetector,
-    RequestValidator,
-    SecureHeaders,
-    SecurityConfig,
-    SecurityHardeningManager,
-    SecurityLevel,
-    ValidationError,
-    ValidationResult,
-)
-
-# mTLS (existing)
+# mTLS
 from instanton.security.mtls import (
     ClientCertInfo,
     ClientCertValidator,
@@ -108,27 +101,28 @@ from instanton.security.mtls import (
     MTLSContext,
     extract_client_cert_from_ssl,
 )
+
+# Rate Limiting
 from instanton.security.ratelimit import (
-    AdaptiveRateLimiter,
-    RateLimitManager,
+    RateLimitConfig,
+    RateLimiter,
     RateLimitResult,
-    SlidingWindowLimiter,
-    TokenBucketLimiter,
+    SlidingWindowCounter,
+    create_rate_limiter,
 )
 
-# Request/Response Sanitization (new)
-from instanton.security.sanitizer import (
-    BodySanitizer,
-    CookieSanitizer,
-    HeaderSanitizer,
-    ParsedCookie,
-    RequestResponseSanitizer,
-    SanitizationConfig,
-    SanitizationMode,
-    SanitizationResult,
+# Request Signing (HMAC/Ed25519)
+from instanton.security.signing import (
+    KeyPair,
+    RequestSigner,
+    RequestVerifier,
+    SignatureAlgorithm,
+    SignatureVerificationResult,
+    SignedRequest,
+    create_signed_headers,
 )
 
-# TLS Hardening (new)
+# TLS Hardening
 from instanton.security.tls import (
     CertificateInfo,
     CertificatePinner,
@@ -143,47 +137,7 @@ from instanton.security.tls import (
     TLSVersion,
 )
 
-# Zero Trust Network Access (ZTNA)
-from instanton.security.zerotrust import (
-    AccessDecision,
-    AccessRequest,
-    AccessResult,
-    DeviceComplianceStatus,
-    DeviceInfo,
-    DevicePosturePolicy,
-    IdentityContext,
-    RiskLevel,
-    RiskScore,
-    TrustLevel,
-    ZeroTrustEngine,
-    ZeroTrustPolicy,
-    create_device_from_request,
-    create_moderate_policy,
-    create_permissive_policy,
-    create_service_identity,
-    create_strict_policy,
-    create_user_identity,
-    evaluate_access,
-    get_zero_trust_engine,
-    set_zero_trust_engine,
-)
-
 __all__ = [
-    # Rate limiting
-    "TokenBucketLimiter",
-    "SlidingWindowLimiter",
-    "AdaptiveRateLimiter",
-    "RateLimitManager",
-    "RateLimitResult",
-    # DDoS protection
-    "DDoSProtector",
-    "ConnectionTracker",
-    "RequestFingerprint",
-    "IPReputationTracker",
-    # Firewall
-    "Firewall",
-    "FirewallRule",
-    "RuleAction",
     # Certificate management
     "ACMEClient",
     "CertInfo",
@@ -238,17 +192,6 @@ __all__ = [
     "MTLSConfig",
     "MTLSContext",
     "extract_client_cert_from_ssl",
-    # OWASP Security Hardening
-    "SecurityLevel",
-    "SecurityConfig",
-    "SecureHeaders",
-    "ValidationError",
-    "ValidationResult",
-    "InputValidator",
-    "RequestSmugglingDetector",
-    "ConnectionLimiter",
-    "RequestValidator",
-    "SecurityHardeningManager",
     # TLS Hardening
     "TLSVersion",
     "CipherStrength",
@@ -261,35 +204,37 @@ __all__ = [
     "TLSContextFactory",
     "OCSPStapler",
     "TLSManager",
-    # Request/Response Sanitization
-    "SanitizationMode",
-    "SanitizationConfig",
-    "HeaderSanitizer",
-    "ParsedCookie",
-    "CookieSanitizer",
-    "BodySanitizer",
-    "SanitizationResult",
-    "RequestResponseSanitizer",
-    # Zero Trust Network Access
-    "TrustLevel",
-    "RiskLevel",
-    "RiskScore",
-    "DeviceComplianceStatus",
-    "DeviceInfo",
-    "DevicePosturePolicy",
-    "IdentityContext",
-    "AccessRequest",
-    "AccessDecision",
-    "AccessResult",
-    "ZeroTrustPolicy",
-    "ZeroTrustEngine",
-    "get_zero_trust_engine",
-    "set_zero_trust_engine",
-    "evaluate_access",
-    "create_service_identity",
-    "create_user_identity",
-    "create_device_from_request",
-    "create_strict_policy",
-    "create_moderate_policy",
-    "create_permissive_policy",
+    # Rate Limiting
+    "RateLimitConfig",
+    "RateLimiter",
+    "RateLimitResult",
+    "SlidingWindowCounter",
+    "create_rate_limiter",
+    # IP Restrictions
+    "IPCheckResult",
+    "IPPolicy",
+    "IPRestrictor",
+    "create_ip_restrictor",
+    # High-Performance Hashing (BLAKE3)
+    "BLAKE3_AVAILABLE",
+    "HashAlgorithm",
+    "HashResult",
+    "Hasher",
+    "compute_checksum",
+    "fast_hash",
+    "fingerprint_request",
+    "get_available_algorithm",
+    "hash_api_key",
+    "hash_file",
+    "hash_password",
+    "hash_stream",
+    "verify_checksum",
+    # Request Signing (HMAC/Ed25519)
+    "KeyPair",
+    "RequestSigner",
+    "RequestVerifier",
+    "SignatureAlgorithm",
+    "SignatureVerificationResult",
+    "SignedRequest",
+    "create_signed_headers",
 ]

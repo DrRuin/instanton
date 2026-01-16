@@ -8,6 +8,28 @@ This module provides comprehensive authentication functionality including:
 - Pluggable storage backends
 """
 
+# FIDO2/Passkeys Support
+from instanton.auth.fido2 import (
+    AttestationConveyance,
+    AuthenticatorAttachment,
+    FIDO2AuthProvider,
+    FIDO2Credential,
+    FIDO2Session,
+    ResidentKey,
+    UserVerification,
+    is_fido2_available,
+)
+
+# TOTP/MFA Support
+from instanton.auth.mfa import (
+    MFAAuthProvider,
+    MFASession,
+    TOTPAlgorithm,
+    TOTPManager,
+    TOTPSecret,
+    TOTPVerificationResult,
+    verify_totp,
+)
 from instanton.auth.middleware import AuthContext, AuthMiddleware
 from instanton.auth.permissions import Permission, Scope, check_permission, require_permission
 from instanton.auth.providers import (
@@ -46,4 +68,21 @@ __all__ = [
     "Scope",
     "check_permission",
     "require_permission",
+    # TOTP/MFA
+    "MFAAuthProvider",
+    "MFASession",
+    "TOTPAlgorithm",
+    "TOTPManager",
+    "TOTPSecret",
+    "TOTPVerificationResult",
+    "verify_totp",
+    # FIDO2/Passkeys
+    "AttestationConveyance",
+    "AuthenticatorAttachment",
+    "FIDO2AuthProvider",
+    "FIDO2Credential",
+    "FIDO2Session",
+    "ResidentKey",
+    "UserVerification",
+    "is_fido2_available",
 ]

@@ -18,13 +18,13 @@
 
 <h3 align="center">
   Expose localhost to the internet. One command. Zero config.<br/>
-  <sub>Open source - Self-hostable - Enterprise security - Free forever</sub>
+  <sub>Open source - Self-hostable - Free forever</sub>
 </h3>
 
 <br/>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/1258%2B-tests%20passing-success?style=flat-square" alt="Tests"/>
+  <img src="https://img.shields.io/badge/700%2B-tests%20passing-success?style=flat-square" alt="Tests"/>
   <img src="https://img.shields.io/badge/latency-5ms-blue?style=flat-square" alt="Latency"/>
   <img src="https://img.shields.io/badge/throughput-1.2%20Gbps-blue?style=flat-square" alt="Throughput"/>
   <img src="https://img.shields.io/badge/scale-10000%2B%20concurrent-green?style=flat-square" alt="Scale"/>
@@ -105,9 +105,6 @@ instanton --port 8000
 
 # Custom subdomain
 instanton --port 8000 --subdomain myapp
-
-# With traffic inspector
-instanton --port 8000 --inspect
 ```
 
 ### TCP Tunnel (Databases, SSH)
@@ -186,59 +183,52 @@ instanton --port 8000 --no-request-timeout
 
 ### Security
 
-- **Zero Trust architecture**
-- TLS 1.3 with certificate pinning
+- TLS 1.3 encryption
 - mTLS (mutual TLS) support
-- JWT, OAuth2, OIDC, API Keys
-- DDoS protection & rate limiting
-- Bot detection & IP reputation
-- Geo-blocking & firewall rules
-- Input sanitization (XSS, SQLi)
+- Certificate management
+- ACME/Let's Encrypt support
+- Auto-reconnection
+- Subdomain reservation
 
 </td>
 <td width="33%" valign="top">
 
 ### Observability
 
-- **Real-time traffic inspector**
-- Request/response replay
 - Prometheus metrics
 - OpenTelemetry tracing
 - Structured logging
 - Health checks & probes
 - Circuit breaker patterns
-- P99 latency tracking
+- Connection statistics
 
 </td>
 </tr>
 <tr>
 <td width="33%" valign="top">
 
-### Load Balancing
-
-**9 algorithms:**
-- Round-robin
-- Weighted round-robin
-- Least connections
-- Weighted least connections
-- Random / Weighted random
-- IP hash
-- Consistent hash ring
-- Least response time
-
-</td>
-<td width="33%" valign="top">
-
 ### Protocols
 
 - HTTP/1.1, HTTP/2, HTTP/3
 - WebSocket (full duplex)
-- gRPC (with frame interception)
+- gRPC support
 - TCP (raw passthrough)
 - UDP (via QUIC datagrams)
 - Auto protocol detection
 - Streaming support
 - Chunked transfer
+
+</td>
+<td width="33%" valign="top">
+
+### Reliability
+
+- Auto-reconnection
+- Exponential backoff
+- Sleep/wake detection
+- Connection health checks
+- Graceful shutdown
+- Subdomain grace period
 
 </td>
 <td width="33%" valign="top">
@@ -250,9 +240,8 @@ instanton --port 8000 --no-request-timeout
 - Async & sync APIs
 - Rich CLI with colors
 - Auto subdomain from project
-- YAML config support
 - Detailed error messages
-- Comprehensive documentation
+- Cross-platform support
 
 </td>
 </tr>
@@ -280,93 +269,6 @@ Instanton is designed to handle thousands of concurrent users:
 
 <br/>
 
-## Zero Trust Security
-
-<br/>
-
-<div align="center">
-
-```
-╔═══════════════════════════════════════════════════════════════════════════════╗
-║                         ZERO TRUST ARCHITECTURE                                ║
-║                        "Never Trust, Always Verify"                            ║
-╠═══════════════════════════════════════════════════════════════════════════════╣
-║                                                                               ║
-║   ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐   ║
-║   │   IDENTITY  │───▶│   DEVICE    │───▶│    RISK     │───▶│   ACCESS    │   ║
-║   │   VERIFY    │    │   POSTURE   │    │   SCORE     │    │  DECISION   │   ║
-║   └─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘   ║
-║        Who?             What?             How risky?         Allow/Deny       ║
-║                                                                               ║
-╚═══════════════════════════════════════════════════════════════════════════════╝
-```
-
-</div>
-
-<div align="center">
-
-```
-                              TRUST LEVELS & ACCESS RIGHTS
-    ╔═══════════════════════════════════════════════════════════════════════════╗
-    ║                                                                           ║
-    ║   UNTRUSTED ──▶ LOW ──▶ MEDIUM ──▶ HIGH ──▶ VERIFIED                     ║
-    ║       │          │         │         │          │                         ║
-    ║       ▼          ▼         ▼         ▼          ▼                         ║
-    ║    ┌──────┐  ┌───────┐  ┌───────┐  ┌───────┐  ┌───────┐                  ║
-    ║    │BLOCK │  │Limited│  │Standard│ │Extended│ │ Full  │                  ║
-    ║    │  ✗   │  │Access │  │ Access │ │ Access │ │Access │                  ║
-    ║    └──────┘  └───────┘  └───────┘  └───────┘  └───────┘                  ║
-    ║                                                                           ║
-    ╚═══════════════════════════════════════════════════════════════════════════╝
-```
-
-</div>
-
-<br/>
-
-<table>
-<tr>
-<td width="33%" align="center">
-
-**TLS 1.3**
-
-ECDHE + AES-GCM
-ChaCha20-Poly1305
-Certificate pinning
-Perfect forward secrecy
-
-</td>
-<td width="33%" align="center">
-
-**DDoS Protection**
-
-Rate limiting (3 algorithms)
-Bot detection
-IP reputation scoring
-Geo-blocking
-Slowloris mitigation
-
-</td>
-<td width="33%" align="center">
-
-**Authentication**
-
-JWT (HS256, RS256)
-OAuth2 / OIDC
-mTLS certificates
-API keys (Argon2)
-Basic auth
-
-</td>
-</tr>
-</table>
-
-<br/>
-
----
-
-<br/>
-
 ## Architecture
 
 <div align="center">
@@ -386,14 +288,14 @@ Basic auth
             │                                                        │
             │ HTTP                                              HTTPS│
             ▼                                                        │
-  ┌───────────────────┐         QUIC/HTTP3            ┌──────────────┴──────────┐
-  │  INSTANTON CLIENT │◀═══════════════════════════════▶│   INSTANTON RELAY     │
-  │                   │      (0-RTT, multiplexed)      │                        │
-  │  • LZ4/Zstd       │                                │  • TLS 1.3 Termination │
-  │  • Connection Pool│                                │  • Subdomain Routing   │
-  │  • Zero-copy      │                                │  • Load Balancing (9)  │
-  │  • Auto-reconnect │                                │  • DDoS Protection     │
-  └───────────────────┘                                └────────────────────────┘
+  ┌───────────────────┐         WebSocket/QUIC           ┌──────────────┴──────────┐
+  │  INSTANTON CLIENT │◀═══════════════════════════════════▶│   INSTANTON RELAY     │
+  │                   │      (TLS 1.3, multiplexed)       │                        │
+  │  • LZ4/Zstd       │                                   │  • TLS 1.3 Termination │
+  │  • Connection Pool│                                   │  • Subdomain Routing   │
+  │  • Zero-copy      │                                   │  • Health Monitoring   │
+  │  • Auto-reconnect │                                   │  • Grace Period        │
+  └───────────────────┘                                   └────────────────────────┘
 
   ┌─────────────────────────────────────────────────────────────────────────────┐
   │                              DATA FLOW                                       │
@@ -452,19 +354,6 @@ services:
     restart: unless-stopped
 ```
 
-### Kubernetes (Helm)
-
-```bash
-# Add the Helm repository
-helm repo add instanton https://drruin.github.io/instanton
-helm repo update
-
-# Install
-helm install instanton instanton/instanton-server \
-  --set domain=tunnel.example.com \
-  --set ingress.enabled=true
-```
-
 <br/>
 
 ---
@@ -486,8 +375,7 @@ Options:
   --timeout INTEGER       Connection timeout (seconds) [default: 30]
   --idle-timeout INTEGER  Idle timeout (seconds) [default: 300]
   --no-request-timeout    Disable request timeout (for long-running APIs)
-  --inspect               Enable traffic inspector at localhost:4040
-  --quic / --no-quic      Use QUIC transport [default: enabled]
+  --quic / --no-quic      Use QUIC transport
   --verbose               Enable verbose logging
   --version               Show version
   --help                  Show this message
@@ -576,14 +464,14 @@ cd instanton
 # Install development dependencies
 pip install -e ".[dev]"
 
-# Run all tests (1258+)
+# Run all tests (700+)
 pytest tests/ -v
 
 # Run with coverage
 pytest tests/ -v --cov=instanton --cov-report=html
 
 # Run specific test categories
-pytest tests/test_protocol.py -v
+pytest tests/test_server.py -v
 pytest tests/test_scalability.py -v
 pytest tests/test_exceptions.py -v
 ```
@@ -629,18 +517,17 @@ git push origin feature/amazing-feature
 - [x] HTTP/HTTPS tunnels
 - [x] TCP/UDP tunnels
 - [x] QUIC/HTTP3 transport
-- [x] Zero Trust security
-- [x] 9 load balancing algorithms
-- [x] DDoS protection
-- [x] Traffic inspector
+- [x] TLS 1.3 security
+- [x] mTLS support
+- [x] ACME/Let's Encrypt
 - [x] Prometheus metrics
 - [x] OpenTelemetry tracing
-- [x] Docker & Kubernetes
-- [x] Helm charts
+- [x] Docker deployment
 - [x] Python SDK
 - [x] Comprehensive error handling
-- [ ] SAML authentication
 - [ ] Web dashboard
+- [ ] Traffic inspector
+- [ ] Load balancing
 
 <br/>
 
