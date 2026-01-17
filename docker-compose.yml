@@ -54,6 +54,8 @@ services:
 
   # -------------------------------------------------------------------------
   # Instanton Dashboard (Web UI)
+  # NOTE: Disabled by default due to heavy shiny dependencies
+  # Enable with: docker compose --profile dashboard up -d --build
   # -------------------------------------------------------------------------
   instanton-dashboard:
     build:
@@ -79,6 +81,8 @@ services:
     restart: unless-stopped
     networks:
       - instanton-network
+    profiles:
+      - dashboard  # Only builds with: docker compose --profile dashboard up
 
   # -------------------------------------------------------------------------
   # Instanton Client (Example - connects to server)
