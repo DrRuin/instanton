@@ -1320,7 +1320,16 @@ class RelayServer:
             # For WebSocket upgrade responses (status 101), preserve upgrade headers
             is_websocket_response = response.status == 101
             response_headers = {}
-            for key, value in response.headers.items():
+
+            # Safely iterate over headers with robust type handling
+            headers_dict = response.headers if response.headers else {}
+            for key, value in headers_dict.items():
+                # Ensure key is a string
+                if isinstance(key, bytes):
+                    key = key.decode("utf-8", errors="replace")
+                elif not isinstance(key, str):
+                    key = str(key)
+
                 key_lower = key.lower()
                 # Skip hop-by-hop headers
                 if key_lower in hop_by_hop:
@@ -1332,10 +1341,21 @@ class RelayServer:
                 # For WebSocket responses, preserve connection and upgrade headers
                 if key_lower in ("connection", "upgrade"):
                     if is_websocket_response:
-                        response_headers[key] = str(value)
+                        # Ensure value is a string
+                        if isinstance(value, bytes):
+                            response_headers[key] = value.decode("utf-8", errors="replace")
+                        else:
+                            response_headers[key] = str(value) if value is not None else ""
                     continue
                 # Ensure value is a string (handle potential bytes/other types)
-                response_headers[key] = str(value) if not isinstance(value, str) else value
+                if isinstance(value, bytes):
+                    response_headers[key] = value.decode("utf-8", errors="replace")
+                elif value is None:
+                    response_headers[key] = ""
+                elif not isinstance(value, str):
+                    response_headers[key] = str(value)
+                else:
+                    response_headers[key] = value
 
             # Always set Connection header for proper HTTP/1.1 behavior
             # This prevents browsers from hanging while waiting for connection state
@@ -1345,7 +1365,8 @@ class RelayServer:
 
             # Use StreamResponse for large responses to improve time-to-first-byte
             # This sends headers immediately and streams body in chunks
-            body_size = len(response.body) if response.body else 0
+            body = response.body if response.body is not None else b""
+            body_size = len(body)
 
             if body_size > 65536:  # 64KB threshold for streaming
                 # Use streaming for large responses
@@ -1359,7 +1380,6 @@ class RelayServer:
 
                 # Write body in chunks
                 chunk_size = 65536  # 64KB chunks
-                body = response.body
                 for i in range(0, body_size, chunk_size):
                     await stream_response.write(body[i : i + chunk_size])
 
@@ -1370,7 +1390,7 @@ class RelayServer:
                 return web.Response(
                     status=response.status,
                     headers=response_headers,
-                    body=response.body,
+                    body=body,
                 )
 
         except TimeoutError:
@@ -1396,11 +1416,14 @@ class RelayServer:
                 content_type="text/plain",
             )
         except Exception as e:
+            import traceback
             logger.error(
                 "Request error",
                 subdomain=subdomain,
                 request_id=str(request_id),
                 error=str(e),
+                error_type=type(e).__name__,
+                traceback=traceback.format_exc(),
             )
             return web.Response(
                 text="Internal Server Error",
