@@ -1275,11 +1275,12 @@ class RelayServer:
             # 2. The sse_complete event (for SSE streaming completion)
             async def wait_for_response():
                 """Wait for either regular response or SSE completion."""
-                future_task = asyncio.create_task(future)
+                # Use ensure_future for the Future (not create_task which only accepts coroutines)
+                future_awaitable = asyncio.ensure_future(future)
                 sse_task = asyncio.create_task(ctx.sse_complete.wait())
 
                 done, pending = await asyncio.wait(
-                    [future_task, sse_task],
+                    [future_awaitable, sse_task],
                     return_when=asyncio.FIRST_COMPLETED,
                 )
 
@@ -1294,8 +1295,8 @@ class RelayServer:
                     return None  # SSE response already sent
 
                 # Return regular response
-                if future_task in done:
-                    return future_task.result()
+                if future_awaitable in done:
+                    return future_awaitable.result()
                 return None
 
             if timeout is None or timeout <= 0:
