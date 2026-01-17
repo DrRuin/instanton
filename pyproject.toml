@@ -116,21 +116,11 @@ geo = [
     "geoip2>=4.8.0",
 ]
 
-# Dashboard (Shiny + Supabase)
-dashboard = [
-    "shiny>=1.0.0",
-    "supabase>=2.0.0",
-    "uvicorn>=0.34.0",
-]
-
 # All optional features
 all = [
     "qrcode[pil]>=7.4.0",
     "fido2>=1.1.0",
     "geoip2>=4.8.0",
-    "shiny>=1.0.0",
-    "supabase>=2.0.0",
-    "uvicorn>=0.34.0",
 ]
 
 [project.scripts]
@@ -195,9 +185,6 @@ module = [
     "aiosqlite.*",
     "httpx.*",
     "cachetools.*",
-    "shiny.*",
-    "supabase.*",
-    "uvicorn.*",
     "pyotp.*",
     "qrcode.*",
     "fido2.*",
