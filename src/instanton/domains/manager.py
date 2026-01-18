@@ -40,10 +40,10 @@ class DomainStatus(Enum):
 
     NOT_FOUND = "not_found"
     PENDING_VERIFICATION = "pending_verification"
-    CNAME_ONLY = "cname_only"  # CNAME verified, TXT pending
+    CNAME_ONLY = "cname_only"
     VERIFIED = "verified"
     CERTIFICATE_PENDING = "certificate_pending"
-    ACTIVE = "active"  # Fully verified with certificate
+    ACTIVE = "active"
 
 
 @dataclass
@@ -111,28 +111,23 @@ class DomainManager:
         """
         domain = domain.lower().strip()
 
-        # Check if this is a wildcard domain
         wildcard = is_wildcard_pattern(domain)
         if wildcard:
             valid, error = validate_wildcard_pattern(domain)
             if not valid:
                 raise ValueError(f"Invalid wildcard pattern: {error}")
 
-        # Check if already registered
         existing = await self.store.get(domain)
         if existing:
             if existing.tunnel_id != tunnel_id:
                 raise ValueError(
                     f"Domain {domain} is already registered to tunnel {existing.tunnel_id}"
                 )
-            # Same tunnel, return existing registration
             return existing
 
-        # For wildcard domains, generate token for the base domain
         verification_domain = get_base_domain(domain) if wildcard else domain
         token = self.verifier.generate_verification_token(verification_domain)
 
-        # Create registration
         registration = DomainRegistration(
             domain=domain,
             tunnel_id=tunnel_id,
@@ -142,7 +137,6 @@ class DomainManager:
             wildcard_pattern=domain if wildcard else None,
         )
 
-        # Save to storage
         await self.store.save(registration)
 
         return registration
@@ -164,15 +158,12 @@ class DomainManager:
         """
         domain = domain.lower().strip()
 
-        # Get registration
         registration = await self.store.get(domain)
         if not registration:
             raise ValueError(f"Domain {domain} is not registered")
 
-        # Perform DNS verification
         result = await self.verifier.verify_domain(domain, registration.verification_token)
 
-        # Update registration if fully verified
         if result.is_verified and not registration.verified:
             registration.verified = True
             registration.verified_at = datetime.now(UTC)
@@ -206,14 +197,12 @@ class DomainManager:
                 dns_instructions=None,
             )
 
-        # Determine status
         if registration.verified:
             if registration.certificate_path:
                 status = DomainStatus.ACTIVE
             else:
                 status = DomainStatus.CERTIFICATE_PENDING
         else:
-            # Check current DNS state
             result = await self.verifier.verify_domain(
                 domain, registration.verification_token
             )
@@ -222,7 +211,6 @@ class DomainManager:
             else:
                 status = DomainStatus.PENDING_VERIFICATION
 
-        # Generate DNS instructions if not verified
         dns_instructions = None
         if not registration.verified:
             dns_instructions = self._generate_dns_instructions(
@@ -272,12 +260,10 @@ class DomainManager:
         """
         domain = domain.lower().strip()
 
-        # First, try exact match
         registration = await self.store.get(domain)
         if registration and registration.verified:
             return registration.tunnel_id
 
-        # Fall back to wildcard matching
         return await self.get_tunnel_for_wildcard(domain)
 
     async def get_tunnel_for_wildcard(self, host: str) -> str | None:
@@ -294,7 +280,6 @@ class DomainManager:
         """
         host = host.lower().strip()
 
-        # Get all verified wildcards
         wildcards = await self.store.list_verified_wildcards()
 
         for registration in wildcards:

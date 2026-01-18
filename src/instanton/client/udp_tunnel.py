@@ -55,9 +55,9 @@ class UdpTunnelConfig:
     """Configuration for UDP tunnel."""
 
     local_host: str = "127.0.0.1"
-    local_port: int = 53  # Default to DNS
-    remote_port: int | None = None  # Remote port on server
-    max_datagram_size: int = 1400  # MTU-safe default
+    local_port: int = 53
+    remote_port: int | None = None
+    max_datagram_size: int = 1400
     connect_timeout: float = 30.0
     idle_timeout: float = 300.0
     keepalive_interval: float = 30.0
@@ -66,13 +66,12 @@ class UdpTunnelConfig:
 class UdpRelayMessage:
     """Message types for UDP relay protocol."""
 
-    # Message types
-    BIND = 0x01  # Bind request
-    BIND_ACK = 0x02  # Bind acknowledgment
-    DATAGRAM = 0x03  # UDP datagram
-    CLOSE = 0x04  # Close tunnel
-    KEEPALIVE = 0x05  # Keepalive ping
-    ERROR = 0x06  # Error message
+    BIND = 0x01
+    BIND_ACK = 0x02
+    DATAGRAM = 0x03
+    CLOSE = 0x04
+    KEEPALIVE = 0x05
+    ERROR = 0x06
 
     @staticmethod
     def encode_bind(
@@ -119,17 +118,14 @@ class UdpRelayMessage:
         msg = bytearray()
         msg.append(UdpRelayMessage.DATAGRAM)
 
-        # Source address (4 bytes IP + 2 bytes port)
         src_ip = socket.inet_aton(source_addr[0])
         msg.extend(src_ip)
         msg.extend(struct.pack(">H", source_addr[1]))
 
-        # Dest address (4 bytes IP + 2 bytes port)
         dst_ip = socket.inet_aton(dest_addr[0])
         msg.extend(dst_ip)
         msg.extend(struct.pack(">H", dest_addr[1]))
 
-        # Data length + data
         msg.extend(struct.pack(">H", len(data)))
         msg.extend(data)
 
@@ -259,7 +255,7 @@ class UdpTunnelClient:
         self,
         config: UdpTunnelConfig | None = None,
         server_addr: str = "instanton.tech",
-        use_quic: bool = True,  # QUIC preferred for UDP
+        use_quic: bool = True,
     ) -> None:
         """Initialize UDP tunnel client.
 
@@ -279,17 +275,13 @@ class UdpTunnelClient:
         self._stats = UdpTunnelStats()
         self._running = False
 
-        # UDP socket for local traffic
         self._udp_transport: asyncio.DatagramTransport | None = None
         self._udp_protocol: UdpTunnelProtocol | None = None
 
-        # Client address mapping for responses
         self._client_addrs: dict[tuple[str, int], tuple[str, int]] = {}
 
-        # State hooks
         self._state_hooks: list[Any] = []
 
-        # Tasks
         self._recv_task: asyncio.Task[Any] | None = None
         self._keepalive_task: asyncio.Task[Any] | None = None
 
@@ -341,24 +333,21 @@ class UdpTunnelClient:
         self._set_state(UdpTunnelState.CONNECTING)
         self._stats.start_time = time.time()
 
-        # Create transport (QUIC preferred for UDP tunneling)
         if self.use_quic:
             self._transport = QuicTransport()
         else:
             self._transport = WebSocketTransport()
 
-        # Connect to server
         try:
             await self._transport.connect(
                 self.server_addr,
-                path="/udp",  # UDP tunnel endpoint
+                path="/udp",
             )
         except Exception as e:
             logger.error("Failed to connect to server", error=str(e))
             self._set_state(UdpTunnelState.DISCONNECTED)
             raise
 
-        # Send bind request
         bind_msg = UdpRelayMessage.encode_bind(
             tunnel_id=self._tunnel_id,
             local_port=self.config.local_port,
@@ -366,7 +355,6 @@ class UdpTunnelClient:
         )
         await self._transport.send(bind_msg)
 
-        # Wait for acknowledgment
         try:
             response = await asyncio.wait_for(
                 self._transport.recv(),
@@ -413,17 +401,14 @@ class UdpTunnelClient:
 
         self._set_state(UdpTunnelState.RELAYING)
 
-        # Create local UDP socket
         loop = asyncio.get_event_loop()
         self._udp_transport, self._udp_protocol = await loop.create_datagram_endpoint(
             lambda: UdpTunnelProtocol(self, self._handle_local_datagram),
             local_addr=(self.config.local_host, self.config.local_port),
         )
 
-        # Start receive task
         self._recv_task = asyncio.create_task(self._receive_loop())
 
-        # Start keepalive task
         self._keepalive_task = asyncio.create_task(self._keepalive_loop())
 
         logger.info(
@@ -432,7 +417,6 @@ class UdpTunnelClient:
             port=self.config.local_port,
         )
 
-        # Wait until closed
         while self._running:
             await asyncio.sleep(1.0)
 
@@ -447,11 +431,8 @@ class UdpTunnelClient:
         if not self._transport or not self._running:
             return
 
-        # Track client address for responses
-        # Use a simple hash as key
         self._client_addrs[addr] = addr
 
-        # Forward to server
         msg = UdpRelayMessage.encode_datagram(
             source_addr=addr,
             dest_addr=(self.server_addr, self._assigned_port or 0),
@@ -488,7 +469,6 @@ class UdpTunnelClient:
                 self._stats.last_activity = time.time()
 
                 if msg_type == UdpRelayMessage.DATAGRAM:
-                    # Forward datagram to local client
                     payload = msg_data["data"]
                     dest_addr = msg_data["dest_addr"]
 
@@ -505,7 +485,6 @@ class UdpTunnelClient:
                     pass
 
             except TimeoutError:
-                # Send keepalive
                 if self._transport:
                     keepalive = UdpRelayMessage.encode_keepalive(self._tunnel_id)
                     try:
@@ -533,7 +512,6 @@ class UdpTunnelClient:
         self._set_state(UdpTunnelState.CLOSING)
         self._running = False
 
-        # Cancel tasks
         if self._recv_task:
             self._recv_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -544,11 +522,9 @@ class UdpTunnelClient:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._keepalive_task
 
-        # Close UDP socket
         if self._udp_transport:
             self._udp_transport.close()
 
-        # Send close message
         if self._transport:
             close_msg = UdpRelayMessage.encode_close(self._tunnel_id)
             with contextlib.suppress(Exception):

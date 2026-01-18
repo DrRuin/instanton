@@ -23,7 +23,6 @@ from instanton.core.config import ClientConfig
 
 logger = structlog.get_logger()
 
-# Default server - can be overridden via environment or config
 DEFAULT_SERVER = os.environ.get("INSTANTON_SERVER", "instanton.tech:4443")
 DEFAULT_AUTH_TOKEN = os.environ.get("INSTANTON_AUTH_TOKEN")
 
@@ -108,7 +107,7 @@ class InstantonConfig:
         self.server: str = DEFAULT_SERVER
         self.auth_token: str | None = DEFAULT_AUTH_TOKEN
         self.auto_reconnect: bool = True
-        self.use_quic: bool = False  # WebSocket is default (server compatibility)
+        self.use_quic: bool = False
         self.connect_timeout: float = 10.0
         self.keepalive_interval: float = 30.0
         self.max_reconnect_attempts: int = 10
@@ -150,7 +149,6 @@ class InstantonConfig:
             self.max_reconnect_attempts = max_reconnect_attempts
 
 
-# Global configuration instance
 config = InstantonConfig()
 
 
@@ -162,7 +160,7 @@ def _generate_unique_suffix() -> str:
     """
     import secrets
 
-    return secrets.token_hex(2)  # 4 hex characters
+    return secrets.token_hex(2)
 
 
 def _suggest_subdomain(with_unique_suffix: bool = True) -> str | None:
@@ -189,7 +187,6 @@ def _suggest_subdomain(with_unique_suffix: bool = True) -> str | None:
     cwd = Path.cwd()
     base_name: str | None = None
 
-    # Try pyproject.toml
     pyproject = cwd / "pyproject.toml"
     if pyproject.exists():
         try:
@@ -203,7 +200,6 @@ def _suggest_subdomain(with_unique_suffix: bool = True) -> str | None:
         except Exception:
             pass
 
-    # Try package.json
     if not base_name:
         package_json = cwd / "package.json"
         if package_json.exists():
@@ -214,28 +210,24 @@ def _suggest_subdomain(with_unique_suffix: bool = True) -> str | None:
                     data = json.load(f)
                     name = data.get("name")
                     if name:
-                        # Remove scope from npm packages
                         if name.startswith("@"):
                             name = name.split("/")[-1]
                         base_name = _sanitize_subdomain(name)
             except Exception:
                 pass
 
-    # Try git remote
     if not base_name:
         git_config = cwd / ".git" / "config"
         if git_config.exists():
             try:
                 with open(git_config) as f:
                     content = f.read()
-                    # Extract repo name from remote URL
                     match = re.search(r"/([^/]+?)(?:\.git)?$", content, re.MULTILINE)
                     if match:
                         base_name = _sanitize_subdomain(match.group(1))
             except Exception:
                 pass
 
-    # Fall back to directory name
     if not base_name:
         dir_name = cwd.name
         if dir_name and dir_name not in (".", "..", "src", "app", "project"):
@@ -244,12 +236,9 @@ def _suggest_subdomain(with_unique_suffix: bool = True) -> str | None:
     if not base_name:
         return None
 
-    # Append unique suffix to prevent conflicts when multiple users
-    # run from the same directory or projects with the same name
     if with_unique_suffix:
         suffix = _generate_unique_suffix()
-        # Ensure total length doesn't exceed subdomain limit (63 chars)
-        max_base_len = 63 - len(suffix) - 1  # -1 for the hyphen
+        max_base_len = 63 - len(suffix) - 1
         if len(base_name) > max_base_len:
             base_name = base_name[:max_base_len].rstrip("-")
         return f"{base_name}-{suffix}"
@@ -259,20 +248,13 @@ def _suggest_subdomain(with_unique_suffix: bool = True) -> str | None:
 
 def _sanitize_subdomain(name: str) -> str:
     """Sanitize a name for use as a subdomain."""
-    # Convert to lowercase
     name = name.lower()
-    # Replace underscores and spaces with hyphens
     name = re.sub(r"[_\s]+", "-", name)
-    # Remove invalid characters
     name = re.sub(r"[^a-z0-9-]", "", name)
-    # Normalize multiple consecutive hyphens to single hyphen
     name = re.sub(r"-+", "-", name)
-    # Remove leading/trailing hyphens
     name = name.strip("-")
-    # Limit length
     if len(name) > 63:
         name = name[:63].rstrip("-")
-    # Ensure minimum length
     if len(name) < 3:
         return ""
     return name
@@ -321,9 +303,7 @@ async def forward(
     Example:
         async with await instanton.forward(8000) as listener:
             print(f"Forwarding {listener.url} -> localhost:8000")
-            # Your application runs here
     """
-    # Resolve port
     if port is None:
         local_port = _find_available_port()
     elif isinstance(port, str):
@@ -331,17 +311,14 @@ async def forward(
     else:
         local_port = port
 
-    # Resolve subdomain
     if subdomain is None and suggest_subdomain:
         subdomain = _suggest_subdomain()
 
-    # Resolve configuration
     server_addr = server or config.server
     reconnect = auto_reconnect if auto_reconnect is not None else config.auto_reconnect
     quic = use_quic if use_quic is not None else config.use_quic
     timeout = connect_timeout if connect_timeout is not None else config.connect_timeout
 
-    # Create client config
     client_config = ClientConfig(
         server_addr=server_addr,
         local_port=local_port,
@@ -353,16 +330,13 @@ async def forward(
         keepalive_interval=config.keepalive_interval,
     )
 
-    # Create tunnel client
     client = TunnelClient(local_port=local_port, config=client_config)
 
-    # Register callbacks
     if on_connect:
         client.add_state_hook(lambda state: on_connect() if state == "connected" else None)
     if on_disconnect:
         client.add_state_hook(lambda state: on_disconnect() if state == "disconnected" else None)
 
-    # Connect
     logger.info(
         "Starting tunnel",
         local_port=local_port,
@@ -372,7 +346,6 @@ async def forward(
 
     url = await client.connect()
 
-    # Start the background run loop
     run_task = asyncio.create_task(client.run())
 
     listener = Listener(
@@ -407,10 +380,8 @@ def forward_sync(
     """
     try:
         loop = asyncio.get_running_loop()
-        # If we're in an async context, use it
         return loop.run_until_complete(forward(port, **kwargs))
     except RuntimeError:
-        # No running loop, create one
         return asyncio.run(forward(port, **kwargs))
 
 
@@ -433,7 +404,6 @@ async def connect(
         listener = await instanton.connect("localhost:3000")
         listener = await instanton.connect("8080")
     """
-    # Parse address
     if ":" in addr:
         host, port_str = addr.rsplit(":", 1)
         port = int(port_str)
@@ -461,7 +431,6 @@ def set_server(server: str) -> None:
     config.server = server
 
 
-# Convenience alias for the forward function
 listen = forward
 
 

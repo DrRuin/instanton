@@ -30,14 +30,11 @@ class TestGenerateUniqueSuffix:
         for _ in range(100):
             suffix = _generate_unique_suffix()
             suffixes.add(suffix)
-        # With 16 bits of entropy, 100 calls should have very few collisions
-        # Expecting at least 95 unique values (allowing for very rare collisions)
         assert len(suffixes) >= 95
 
     def test_suffix_randomness(self):
         """Verify suffixes are random (not sequential)."""
         suffixes = [_generate_unique_suffix() for _ in range(10)]
-        # Check they're not all the same
         assert len(set(suffixes)) > 1
 
 
@@ -47,15 +44,13 @@ class TestSuggestSubdomainWithSuffix:
     def test_suggest_subdomain_has_suffix_by_default(self):
         """Verify suggested subdomain includes a unique suffix by default."""
         subdomain = _suggest_subdomain()
-        if subdomain:  # Only test if we're in a recognizable project directory
-            # Should match pattern: name-xxxx where xxxx is 4 hex chars
+        if subdomain:
             assert re.match(r"^[a-z0-9-]+-[0-9a-f]{4}$", subdomain)
 
     def test_suggest_subdomain_without_suffix(self):
         """Verify we can request subdomain without suffix."""
         subdomain = _suggest_subdomain(with_unique_suffix=False)
         if subdomain:
-            # Should NOT have the 4-char hex suffix
             assert not re.match(r"^.+-[0-9a-f]{4}$", subdomain)
 
     def test_multiple_suggest_calls_different(self):
@@ -65,7 +60,6 @@ class TestSuggestSubdomainWithSuffix:
             subdomain = _suggest_subdomain()
             if subdomain:
                 subdomains.add(subdomain)
-        # If we got any subdomains, they should all be different
         if subdomains:
             assert len(subdomains) == 10
 
@@ -114,11 +108,8 @@ class TestSubdomainUniquenessScenarios:
 
     def test_same_directory_multiple_runs(self):
         """Simulate multiple runs from same directory - should get different subdomains."""
-        # Run _suggest_subdomain multiple times to simulate multiple instanton instances
         subdomains = [_suggest_subdomain() for _ in range(5)]
-        # Filter out None values
         valid_subdomains = [s for s in subdomains if s is not None]
-        # All should be unique
         if valid_subdomains:
             assert len(valid_subdomains) == len(set(valid_subdomains))
 
@@ -129,16 +120,13 @@ class TestSubdomainUniquenessScenarios:
             parts = subdomain.rsplit("-", 1)
             assert len(parts) == 2
             base_name, suffix = parts
-            # Base name should be valid subdomain chars
             assert re.match(r"^[a-z0-9-]+$", base_name)
-            # Suffix should be 4 hex chars
             assert re.match(r"^[0-9a-f]{4}$", suffix)
 
     def test_suffix_appended_correctly(self):
         """Verify suffix is appended with hyphen separator."""
         subdomain = _suggest_subdomain()
         if subdomain:
-            # Should end with -xxxx pattern
             assert re.search(r"-[0-9a-f]{4}$", subdomain)
 
 
@@ -149,13 +137,10 @@ class TestSubdomainLengthWithSuffix:
         """Verify short project names work with suffix."""
         name = "api"
         sanitized = _sanitize_subdomain(name)
-        # With suffix: api-xxxx = 8 chars, well under 63
         assert len(sanitized) == 3
 
     def test_long_name_truncated_for_suffix(self):
         """Verify long project names are truncated to make room for suffix."""
-        # The suffix is 4 chars plus hyphen = 5 chars
-        # Max subdomain is 63 chars, so base name should be max 58 chars
         long_name = "a" * 60
         subdomain = _suggest_subdomain()
         if subdomain:
@@ -167,11 +152,8 @@ class TestNoProjectContext:
 
     def test_none_when_no_context(self, tmp_path, monkeypatch):
         """Verify None is returned when no project files exist."""
-        # Change to empty temp directory
         monkeypatch.chdir(tmp_path)
         subdomain = _suggest_subdomain()
-        # Should return None or use the temp directory name with suffix
-        # Either is acceptable behavior
 
 
 class TestServerSubdomainGeneration:
@@ -179,8 +161,6 @@ class TestServerSubdomainGeneration:
 
     def test_server_generates_random_when_none_provided(self):
         """Document that server generates 12-char hex subdomain when none provided."""
-        # This is a documentation test - the server uses secrets.token_hex(6)
-        # which produces 12 hex characters with 48 bits of entropy
         import secrets
 
         server_subdomain = secrets.token_hex(6)
@@ -189,11 +169,6 @@ class TestServerSubdomainGeneration:
 
     def test_collision_probability_is_low(self):
         """Document the collision probability for subdomains."""
-        # With 48 bits of entropy and 10,000 tunnels:
-        # P(collision) < n^2 / (2 * 2^48) = 10000^2 / (2 * 2^48)
-        #             = 100,000,000 / 562,949,953,421,312
-        #             = 0.0000001776 = 0.00002%
-        # This is documented in README.md
         pass
 
 
@@ -224,5 +199,4 @@ class TestEdgeCases:
     def test_multiple_consecutive_hyphens_normalized(self):
         """Verify multiple hyphens are normalized."""
         result = _sanitize_subdomain("my--project")
-        # Should have single hyphens
         assert "--" not in result

@@ -14,7 +14,6 @@ from rich.table import Table
 
 console = Console()
 
-# Global flag to track shutdown state
 _shutdown_requested = False
 
 BANNER = """
@@ -84,8 +83,8 @@ BANNER = """
     "--log-level",
     "-l",
     type=click.Choice(["debug", "info", "warning", "error"], case_sensitive=False),
-    default="info",
-    help="Log level (default: info)",
+    default="warning",
+    help="Log level (default: warning, use --verbose for debug)",
 )
 @click.pass_context
 def main(
@@ -145,7 +144,6 @@ def main(
             console.print("  instanton tcp      Start TCP tunnel", style="dim")
             return
 
-        # Start tunnel with timeout options and proper signal handling
         _run_tunnel_with_signal_handling(
             port,
             subdomain,
@@ -186,15 +184,12 @@ def _run_tunnel_with_signal_handling(
     global _shutdown_requested
     _shutdown_requested = False
 
-    # Use selector event loop on Windows to fix WebSocket connection issues
-    # The default ProactorEventLoop on Windows has issues with some SSL/WebSocket operations
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    # Create the main task
     main_task = loop.create_task(
         start_tunnel(
             port,
@@ -219,15 +214,12 @@ def _run_tunnel_with_signal_handling(
         """Handle Ctrl+C signal."""
         global _shutdown_requested
         if _shutdown_requested:
-            # Second Ctrl+C - force exit
             console.print("\n[red]Force shutdown![/red]")
             sys.exit(1)
         _shutdown_requested = True
         console.print("\n[yellow]Shutting down gracefully...[/yellow]")
-        # Cancel the main task to trigger cleanup
         main_task.cancel()
 
-    # Set up signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, signal_handler)
@@ -235,15 +227,13 @@ def _run_tunnel_with_signal_handling(
     try:
         loop.run_until_complete(main_task)
     except asyncio.CancelledError:
-        pass  # Expected when Ctrl+C is pressed
+        pass
     except KeyboardInterrupt:
-        pass  # Fallback in case signal handler doesn't catch it
+        pass
     finally:
-        # Clean up pending tasks
         pending = asyncio.all_tasks(loop)
         for task in pending:
             task.cancel()
-        # Wait for all tasks to complete their cancellation
         if pending:
             loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
         loop.close()
@@ -287,10 +277,11 @@ async def start_tunnel(
     """
     import structlog
 
-    # Configure log level
+    effective_log_level = "debug" if verbose else log_level
+
     structlog.configure(
         wrapper_class=structlog.make_filtering_bound_logger(
-            getattr(__import__("logging"), log_level.upper())
+            getattr(__import__("logging"), effective_log_level.upper())
         ),
     )
     from instanton.client.tunnel import ProxyConfig, TunnelClient
@@ -299,27 +290,13 @@ async def start_tunnel(
 
     console.print(BANNER, style="cyan")
 
-    # Auto-suggest subdomain if not provided
     if subdomain is None:
         suggested = _suggest_subdomain()
         if suggested:
             subdomain = suggested
-            console.print(f"Auto-detected project: [cyan]{subdomain}[/cyan]", style="dim")
 
     console.print(f"Starting tunnel for localhost:{port}...", style="yellow")
-    if verbose:
-        timeout_str = "indefinite" if no_request_timeout else f"{timeout}s"
-        console.print(
-            f"[dim]Timeout: {timeout}s | Idle timeout: {idle_timeout}s | "
-            f"Keepalive: {keepalive}s | Request timeout: {timeout_str}[/dim]"
-        )
 
-    if no_request_timeout:
-        console.print(
-            "[dim]Request timeout disabled - connections can stay open indefinitely[/dim]"
-        )
-
-    # Create client config with timeout settings
     client_config = ClientConfig(
         server_addr=server,
         local_port=port,
@@ -330,12 +307,10 @@ async def start_tunnel(
         keepalive_interval=keepalive,
     )
 
-    # Create proxy config with user-specified options
-    # Priority: --no-request-timeout flag > --read-timeout option > default (None/indefinite)
     effective_read_timeout = None if no_request_timeout else read_timeout
     proxy_config = ProxyConfig(
         read_timeout=effective_read_timeout,
-        stream_timeout=None,  # Always allow indefinite streaming
+        stream_timeout=None,
         max_connections=max_connections,
         retry_count=retry_count,
     )
@@ -352,19 +327,10 @@ async def start_tunnel(
     try:
         url = await client.connect()
         panel_content = (
-            f"[green]✓ Tunnel established![/green]\n\n"
+            f"[green]Tunnel established![/green]\n\n"
             f"[bold]Public URL:[/bold] [cyan]{url}[/cyan]\n"
-            f"[bold]Forwarding to:[/bold] http://localhost:{port}\n"
-            f"[bold]Subdomain:[/bold] {client.subdomain or 'auto-assigned'}"
+            f"[bold]Forwarding:[/bold] localhost:{port}"
         )
-        if no_request_timeout:
-            panel_content += "\n[bold]Request Timeout:[/bold] [green]indefinite[/green]"
-        if verbose:
-            panel_content += (
-                f"\n[bold]Timeout:[/bold] {timeout}s\n"
-                f"[bold]Idle timeout:[/bold] {idle_timeout}s\n"
-                f"[bold]Keepalive:[/bold] {keepalive}s"
-            )
         console.print(
             Panel(
                 panel_content,
@@ -372,22 +338,18 @@ async def start_tunnel(
                 border_style="green",
             )
         )
-        console.print("\nPress Ctrl+C to stop the tunnel.\n", style="dim")
+        console.print("\nPress Ctrl+C to stop.\n", style="dim")
 
-        # Show inspect info if enabled
         if inspect:
             console.print("[bold]Request Inspector:[/bold] http://localhost:4040", style="cyan")
 
         await client.run()
     except (KeyboardInterrupt, asyncio.CancelledError):
-        # Graceful shutdown - close the client properly
         await client.close()
         console.print("[green]Tunnel closed.[/green]")
     except Exception as e:
-        # Import here to avoid circular imports
         from instanton.core.exceptions import InstantonError, format_error_for_user
 
-        # Always try to close the client on error
         with contextlib.suppress(Exception):
             await client.close()
 
@@ -421,20 +383,17 @@ def status(server: str, json_output: bool):
     import httpx
 
     try:
-        # Try to get server status
         base_url = f"https://{server}"
         if ":" not in server:
             base_url = f"https://{server}:4443"
 
         with httpx.Client(verify=False, timeout=5.0) as client:
-            # Get health
             try:
                 health_resp = client.get(f"{base_url}/health")
                 health = health_resp.json()
             except Exception:
                 health = {"status": "unknown", "tunnels": 0}
 
-            # Get stats
             try:
                 stats_resp = client.get(f"{base_url}/stats")
                 stats = stats_resp.json()
@@ -447,7 +406,6 @@ def status(server: str, json_output: bool):
             console.print(json.dumps({"health": health, "stats": stats}, indent=2))
             return
 
-        # Display nicely
         console.print(f"\n[bold]Server:[/bold] {server}")
         status = health.get("status", "unknown")
         console.print(f"[bold]Status:[/bold] [green]{status}[/green]")
@@ -704,9 +662,156 @@ def _format_bytes(num_bytes: int | float) -> str:
     return f"{value:.1f} TB"
 
 
-# =============================================================================
-# Domain Management Commands
-# =============================================================================
+@main.group()
+def config():
+    """View and export configuration settings.
+
+    All settings can be configured via environment variables with the
+    INSTANTON_ prefix. Use these commands to see current values.
+
+    Examples:
+
+        instanton config show            # Show all config settings
+
+        instanton config export          # Export as env vars
+
+        instanton config validate        # Validate current config
+    """
+    pass
+
+
+@config.command("show")
+@click.option("--json", "json_output", is_flag=True, help="Output as JSON")
+@click.option("--section", "-s", help="Show only specific section (performance, timeouts, reconnect, resources)")
+def config_show(json_output: bool, section: str | None):
+    """Show current configuration settings.
+
+    Displays all configurable settings with their current values.
+    Values come from environment variables or defaults.
+    """
+    from instanton.core.config import get_config
+
+    cfg = get_config()
+    display = cfg.to_display_dict()
+
+    if section:
+        section = section.lower()
+        if section not in display:
+            console.print(f"[red]Unknown section:[/red] {section}")
+            console.print(f"[dim]Available: {', '.join(display.keys())}[/dim]")
+            sys.exit(1)
+        display = {section: display[section]}
+
+    if json_output:
+        import json
+        console.print(json.dumps(display, indent=2))
+        return
+
+    console.print(BANNER, style="cyan")
+    console.print("[bold]Current Configuration[/bold]\n")
+
+    for section_name, settings in display.items():
+        table = Table(title=section_name.replace("_", " ").title())
+        table.add_column("Setting", style="cyan")
+        table.add_column("Value", style="green")
+        table.add_column("Env Variable", style="dim")
+
+        for key, value in settings.items():
+            env_var = f"INSTANTON_{key.upper()}"
+            value_str = str(value) if value is not None else "[dim]None[/dim]"
+            table.add_row(key, value_str, env_var)
+
+        console.print(table)
+        console.print()
+
+
+@config.command("export")
+@click.option("--shell", type=click.Choice(["bash", "powershell", "cmd"]), default="bash", help="Shell format")
+def config_export(shell: str):
+    """Export current configuration as environment variables.
+
+    Outputs commands to set all config values as env vars.
+    """
+    from instanton.core.config import get_config
+
+    cfg = get_config()
+    env_dict = cfg.to_env_dict()
+
+    console.print(f"# Instanton Configuration Export ({shell})")
+    console.print("# Copy and paste or save to a file\n")
+
+    for key, value in env_dict.items():
+        if value is None:
+            continue
+        value_str = str(value).lower() if isinstance(value, bool) else str(value)
+
+        if shell == "bash":
+            console.print(f'export {key}="{value_str}"')
+        elif shell == "powershell":
+            console.print(f'$env:{key}="{value_str}"')
+        elif shell == "cmd":
+            console.print(f'set {key}={value_str}')
+
+
+@config.command("validate")
+def config_validate():
+    """Validate current configuration.
+
+    Checks that all config values are valid and within expected ranges.
+    """
+    from instanton.core.config import clear_config, get_config
+
+    clear_config()
+
+    try:
+        cfg = get_config()
+
+        errors = []
+        warnings = []
+
+        perf = cfg.performance
+        if perf.chunk_size < 1024:
+            warnings.append(f"chunk_size ({perf.chunk_size}) is very small, may impact performance")
+        if perf.chunk_size > 10 * 1024 * 1024:
+            warnings.append(f"chunk_size ({perf.chunk_size}) is very large, may cause memory issues")
+        if perf.compression_level < 1 or perf.compression_level > 19:
+            errors.append(f"compression_level ({perf.compression_level}) must be between 1 and 19")
+
+        timeouts = cfg.timeouts
+        if timeouts.connect_timeout < 1:
+            warnings.append(f"connect_timeout ({timeouts.connect_timeout}s) is very short")
+        if timeouts.ping_interval < 5:
+            warnings.append(f"ping_interval ({timeouts.ping_interval}s) is very short, may cause overhead")
+
+        resources = cfg.resources
+        if resources.tcp_port_min >= resources.tcp_port_max:
+            errors.append(f"tcp_port_min ({resources.tcp_port_min}) must be less than tcp_port_max ({resources.tcp_port_max})")
+        if resources.udp_port_min >= resources.udp_port_max:
+            errors.append(f"udp_port_min ({resources.udp_port_min}) must be less than udp_port_max ({resources.udp_port_max})")
+
+        if errors:
+            console.print("[red bold]Configuration Errors:[/red bold]")
+            for error in errors:
+                console.print(f"  [red]x[/red] {error}")
+            console.print()
+
+        if warnings:
+            console.print("[yellow bold]Configuration Warnings:[/yellow bold]")
+            for warning in warnings:
+                console.print(f"  [yellow]![/yellow] {warning}")
+            console.print()
+
+        if not errors and not warnings:
+            console.print("[green]OK - Configuration is valid[/green]")
+        elif not errors:
+            console.print("[green]OK - Configuration is valid (with warnings)[/green]")
+        else:
+            console.print("[red]ERROR - Configuration has errors[/red]")
+            sys.exit(1)
+
+    except Exception as e:
+        console.print(f"[red]Configuration error:[/red] {e}")
+        sys.exit(1)
 
 
 @main.group()

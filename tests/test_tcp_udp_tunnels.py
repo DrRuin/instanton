@@ -17,9 +17,6 @@ from instanton.client.udp_tunnel import (
     UdpTunnelStats,
 )
 
-# ==============================================================================
-# TCP Relay Message Tests
-# ==============================================================================
 
 
 class TestTcpRelayMessage:
@@ -124,13 +121,10 @@ class TestTcpRelayMessage:
         result = TcpRelayMessage.decode(b"")
         assert result is None
 
-        result = TcpRelayMessage.decode(b"\x01")  # Too short for connect
+        result = TcpRelayMessage.decode(b"\x01")
         assert result is None
 
 
-# ==============================================================================
-# UDP Relay Message Tests
-# ==============================================================================
 
 
 class TestUdpRelayMessage:
@@ -222,9 +216,6 @@ class TestUdpRelayMessage:
         assert result is None
 
 
-# ==============================================================================
-# TCP Tunnel Client Tests
-# ==============================================================================
 
 
 class TestTcpTunnelConfig:
@@ -289,9 +280,6 @@ class TestTcpTunnelClient:
         assert isinstance(stats, TcpTunnelStats)
 
 
-# ==============================================================================
-# UDP Tunnel Client Tests
-# ==============================================================================
 
 
 class TestUdpTunnelConfig:
@@ -361,9 +349,6 @@ class TestUdpTunnelClient:
         assert client.use_quic is True
 
 
-# ==============================================================================
-# State Hook Tests
-# ==============================================================================
 
 
 class TestTcpStateHooks:
@@ -378,7 +363,6 @@ class TestTcpStateHooks:
             states.append(state)
 
         client.add_state_hook(hook)
-        # Trigger state change
         client._set_state(TcpTunnelState.CONNECTING)
         assert TcpTunnelState.CONNECTING in states
 
@@ -391,7 +375,7 @@ class TestTcpStateHooks:
 
         client.add_state_hook(hook)
         assert client.remove_state_hook(hook) is True
-        assert client.remove_state_hook(hook) is False  # Already removed
+        assert client.remove_state_hook(hook) is False
 
 
 class TestUdpStateHooks:
@@ -410,9 +394,6 @@ class TestUdpStateHooks:
         assert UdpTunnelState.CONNECTING in states
 
 
-# ==============================================================================
-# Tunnel URL Tests
-# ==============================================================================
 
 
 class TestTunnelUrls:

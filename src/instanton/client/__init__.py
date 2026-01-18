@@ -24,19 +24,16 @@ from .udp_tunnel import (
 )
 
 __all__ = [
-    # HTTP Tunnel
     "ConnectionState",
     "ProxyConfig",
     "ReconnectConfig",
     "TunnelClient",
-    # TCP Tunnel
     "TcpTunnelState",
     "TcpTunnelStats",
     "TcpTunnelConfig",
     "TcpRelayMessage",
     "TcpTunnelClient",
     "start_tcp_tunnel",
-    # UDP Tunnel
     "UdpTunnelState",
     "UdpTunnelStats",
     "UdpTunnelConfig",

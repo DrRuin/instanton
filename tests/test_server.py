@@ -64,7 +64,6 @@ class TestRelayServerInit:
 
     def test_parse_bind_ipv6(self, relay_server):
         """Test parsing IPv6 bind address."""
-        # IPv6 addresses have colons, so rsplit with maxsplit=1 should work
         host, port = relay_server._parse_bind("::1:8080")
         assert host == "::1"
         assert port == 8080
@@ -297,7 +296,6 @@ class TestServerStartStop:
         """Test server can start and stop."""
         server = RelayServer(server_config)
 
-        # Start server
         await server.start()
 
         assert server._control_app is not None
@@ -306,7 +304,6 @@ class TestServerStartStop:
         assert server._http_runner is not None
         assert server._cleanup_task is not None
 
-        # Stop server
         await server.stop()
 
         assert server._tunnels == {}
@@ -318,7 +315,6 @@ class TestServerStartStop:
         server = RelayServer(server_config)
         await server.start()
 
-        # Add a mock tunnel
         mock_ws = AsyncMock()
         mock_ws.closed = False
         tunnel = TunnelConnection(
@@ -360,7 +356,6 @@ class TestHealthEndpoint:
     @pytest.mark.asyncio
     async def test_health_check_response(self, relay_server):
         """Test health check returns correct response."""
-        # Create a mock request
         mock_request = MagicMock()
 
         response = await relay_server._handle_health_check(mock_request)
@@ -447,7 +442,6 @@ class TestHttpRequestRouting:
         response = await relay_server._handle_http_request(mock_request)
 
         assert response.status == 502
-        # Tunnel should be cleaned up
         assert "closed" not in relay_server._tunnels
 
 

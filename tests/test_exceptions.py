@@ -319,17 +319,14 @@ class TestErrorUsability:
 
     def test_errors_have_helpful_messages(self):
         """Test that errors have helpful, actionable messages."""
-        # Connection errors should suggest checking network
         error = ConnectionTimeoutError("server.com", 30.0)
         msg = str(error).lower()
         assert "check" in msg or "network" in msg
 
-        # Subdomain errors should suggest alternatives
         error = SubdomainTakenError("myapp")
         msg = str(error).lower()
         assert "choose" in msg or "different" in msg or "let" in msg
 
-        # Auth errors should suggest how to authenticate
         error = AuthenticationRequiredError()
         msg = str(error).lower()
         assert "token" in msg or "auth" in msg

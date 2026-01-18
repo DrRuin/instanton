@@ -29,7 +29,7 @@ class RateLimitConfig:
     requests_per_second: float = 100.0
     burst_size: int = 10
     window_seconds: float = 1.0
-    max_entries: int = 10000  # LRU eviction threshold
+    max_entries: int = 10000
 
 
 @dataclass
@@ -73,14 +73,11 @@ class SlidingWindowCounter:
         """Rotate windows if needed. O(1) operation."""
         elapsed = now - self._window_start
         if elapsed >= self._window_seconds:
-            # How many full windows have passed
             windows_passed = int(elapsed / self._window_seconds)
             if windows_passed >= 2:
-                # More than 2 windows = reset both
                 self._previous_count = 0
                 self._current_count = 0
             else:
-                # Rotate: current -> previous
                 self._previous_count = self._current_count
                 self._current_count = 0
             self._window_start = now - (elapsed % self._window_seconds)
@@ -96,7 +93,6 @@ class SlidingWindowCounter:
 
         self._maybe_rotate(now)
 
-        # Calculate weighted count (sliding window interpolation)
         elapsed = now - self._window_start
         weight = elapsed / self._window_seconds
         weighted = self._previous_count * (1 - weight) + self._current_count
@@ -147,7 +143,6 @@ class RateLimiter:
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False)
 
     def __post_init__(self) -> None:
-        # Initialize global counter with higher limit
         global_limit = int(self.config.requests_per_second * 100)
         self._global_counter = SlidingWindowCounter(
             limit=global_limit,
@@ -157,11 +152,9 @@ class RateLimiter:
     def _get_counter(self, key: str) -> SlidingWindowCounter:
         """Get or create counter for key. O(1) amortized."""
         if key in self._counters:
-            # Move to end (most recently used)
             self._counters.move_to_end(key)
             return self._counters[key]
 
-        # Create new counter
         limit = int(self.config.requests_per_second * self.config.window_seconds)
         limit = max(limit, self.config.burst_size)
         counter = SlidingWindowCounter(
@@ -170,7 +163,6 @@ class RateLimiter:
         )
         self._counters[key] = counter
 
-        # LRU eviction if needed
         while len(self._counters) > self.config.max_entries:
             self._counters.popitem(last=False)
 
@@ -193,7 +185,6 @@ class RateLimiter:
         async with self._lock:
             now = monotonic()
 
-            # Always check global limit first
             if self._global_counter:
                 global_allowed, _, _ = self._global_counter.allow(now)
                 if not global_allowed:
@@ -204,7 +195,6 @@ class RateLimiter:
                         limit=int(self.config.requests_per_second * 100),
                     )
 
-            # Check per-key limit
             counter = self._get_counter(f"{scope}:{key}")
             allowed, remaining, reset_after = counter.allow(now)
 

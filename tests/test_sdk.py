@@ -76,7 +76,6 @@ class TestSubdomainSuggestion:
         pyproject.write_text('[project]\nname = "my-awesome-app"')
 
         monkeypatch.chdir(tmp_path)
-        # Use with_unique_suffix=False to test base name extraction
         result = _suggest_subdomain(with_unique_suffix=False)
         assert result == "my-awesome-app"
 
@@ -88,7 +87,6 @@ class TestSubdomainSuggestion:
 
         monkeypatch.chdir(tmp_path)
         result = _suggest_subdomain()
-        # Should match pattern: my-awesome-app-xxxx where xxxx is 4 hex chars
         assert re.match(r"^my-awesome-app-[0-9a-f]{4}$", result)
 
     def test_suggest_from_package_json(self, tmp_path: Path, monkeypatch):
@@ -97,7 +95,6 @@ class TestSubdomainSuggestion:
         package_json.write_text('{"name": "react-app"}')
 
         monkeypatch.chdir(tmp_path)
-        # Use with_unique_suffix=False to test base name extraction
         result = _suggest_subdomain(with_unique_suffix=False)
         assert result == "react-app"
 
@@ -107,7 +104,6 @@ class TestSubdomainSuggestion:
         package_json.write_text('{"name": "@myorg/cool-package"}')
 
         monkeypatch.chdir(tmp_path)
-        # Use with_unique_suffix=False to test base name extraction
         result = _suggest_subdomain(with_unique_suffix=False)
         assert result == "cool-package"
 
@@ -117,7 +113,6 @@ class TestSubdomainSuggestion:
         project_dir.mkdir()
 
         monkeypatch.chdir(project_dir)
-        # Use with_unique_suffix=False to test base name extraction
         result = _suggest_subdomain(with_unique_suffix=False)
         assert result == "my-project"
 
@@ -128,7 +123,6 @@ class TestSubdomainSuggestion:
 
         monkeypatch.chdir(src_dir)
         result = _suggest_subdomain()
-        # Should return None or empty for common names
         assert result is None or result == ""
 
     def test_suggest_handles_invalid_pyproject(self, tmp_path: Path, monkeypatch):
@@ -137,9 +131,7 @@ class TestSubdomainSuggestion:
         pyproject.write_text("invalid toml {{{")
 
         monkeypatch.chdir(tmp_path)
-        # Should not raise, just return fallback
         result = _suggest_subdomain()
-        # Falls back to directory name (with unique suffix)
         assert result is not None
 
 
@@ -150,7 +142,7 @@ class TestInstantonConfig:
         """Test default configuration values."""
         cfg = InstantonConfig()
         assert cfg.auto_reconnect is True
-        assert cfg.use_quic is False  # WebSocket is default for server compatibility
+        assert cfg.use_quic is False
         assert cfg.connect_timeout == 10.0
         assert cfg.keepalive_interval == 30.0
         assert cfg.max_reconnect_attempts == 10
@@ -285,7 +277,6 @@ class TestListener:
             assert active_listener is listener
             assert active_listener.is_active is True
 
-        # Should close on exit
         mock_client.close.assert_called()
 
 
@@ -385,7 +376,6 @@ class TestForwardFunction:
                 suggest_subdomain=False,
             )
 
-            # Verify hooks were registered
             assert mock_client.add_state_hook.call_count == 2
 
 
@@ -396,7 +386,6 @@ class TestModuleImports:
         """Test that instanton module exports SDK functions."""
         import instanton
 
-        # These should all be accessible
         assert hasattr(instanton, "forward")
         assert hasattr(instanton, "connect")
         assert hasattr(instanton, "listen")
@@ -434,7 +423,6 @@ class TestEnvironmentVariables:
         """Test that INSTANTON_SERVER env var is used."""
         monkeypatch.setenv("INSTANTON_SERVER", "custom.server.com:443")
 
-        # Re-import to pick up env var
         import importlib
 
         from instanton import sdk
@@ -442,7 +430,6 @@ class TestEnvironmentVariables:
 
         assert sdk.DEFAULT_SERVER == "custom.server.com:443"
 
-        # Reset
         monkeypatch.delenv("INSTANTON_SERVER", raising=False)
         importlib.reload(sdk)
 
@@ -450,7 +437,6 @@ class TestEnvironmentVariables:
         """Test that INSTANTON_AUTH_TOKEN env var is used."""
         monkeypatch.setenv("INSTANTON_AUTH_TOKEN", "env-token-123")
 
-        # Re-import to pick up env var
         import importlib
 
         from instanton import sdk
@@ -458,6 +444,5 @@ class TestEnvironmentVariables:
 
         assert sdk.DEFAULT_AUTH_TOKEN == "env-token-123"
 
-        # Reset
         monkeypatch.delenv("INSTANTON_AUTH_TOKEN", raising=False)
         importlib.reload(sdk)

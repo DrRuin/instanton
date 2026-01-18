@@ -55,8 +55,8 @@ class TcpTunnelConfig:
 
     local_host: str = "127.0.0.1"
     local_port: int = 22
-    remote_host: str | None = None  # For connecting to remote target
-    remote_port: int | None = None  # Remote port on server
+    remote_host: str | None = None
+    remote_port: int | None = None
     buffer_size: int = 65535
     connect_timeout: float = 30.0
     idle_timeout: float = 300.0
@@ -67,13 +67,12 @@ class TcpTunnelConfig:
 class TcpRelayMessage:
     """Message types for TCP relay protocol."""
 
-    # Message types
-    CONNECT = 0x01  # Connect request
-    CONNECT_ACK = 0x02  # Connect acknowledgment
-    DATA = 0x03  # Data packet
-    CLOSE = 0x04  # Close connection
-    KEEPALIVE = 0x05  # Keepalive ping
-    ERROR = 0x06  # Error message
+    CONNECT = 0x01
+    CONNECT_ACK = 0x02
+    DATA = 0x03
+    CLOSE = 0x04
+    KEEPALIVE = 0x05
+    ERROR = 0x06
 
     @staticmethod
     def encode_connect(
@@ -236,17 +235,13 @@ class TcpTunnelClient:
         self._stats = TcpTunnelStats()
         self._running = False
 
-        # Active connections: connection_id -> (reader, writer)
         self._connections: dict[bytes, tuple[asyncio.StreamReader, asyncio.StreamWriter]] = {}
         self._connection_tasks: dict[bytes, asyncio.Task[Any]] = {}
 
-        # State hooks
         self._state_hooks: list[Callable[[TcpTunnelState], None]] = []
 
-        # Server for accepting local connections
         self._local_server: asyncio.Server | None = None
 
-        # Message handling
         self._recv_task: asyncio.Task[Any] | None = None
         self._keepalive_task: asyncio.Task[Any] | None = None
 
@@ -309,24 +304,21 @@ class TcpTunnelClient:
         self._set_state(TcpTunnelState.CONNECTING)
         self._stats.start_time = time.time()
 
-        # Create transport
         if self.use_quic:
             self._transport = QuicTransport()
         else:
             self._transport = WebSocketTransport()
 
-        # Connect to server
         try:
             await self._transport.connect(
                 self.server_addr,
-                path="/tcp",  # TCP tunnel endpoint
+                path="/tcp",
             )
         except Exception as e:
             logger.error("Failed to connect to server", error=str(e))
             self._set_state(TcpTunnelState.DISCONNECTED)
             raise
 
-        # Send connect request
         connect_msg = TcpRelayMessage.encode_connect(
             tunnel_id=self._tunnel_id,
             local_port=self.config.local_port,
@@ -334,7 +326,6 @@ class TcpTunnelClient:
         )
         await self._transport.send(connect_msg)
 
-        # Wait for acknowledgment
         try:
             response = await asyncio.wait_for(
                 self._transport.recv(),
@@ -381,17 +372,14 @@ class TcpTunnelClient:
 
         self._set_state(TcpTunnelState.RELAYING)
 
-        # Start local server to accept connections
         self._local_server = await asyncio.start_server(
             self._handle_local_connection,
             self.config.local_host,
             self.config.local_port,
         )
 
-        # Start receive task
         self._recv_task = asyncio.create_task(self._receive_loop())
 
-        # Start keepalive task
         self._keepalive_task = asyncio.create_task(self._keepalive_loop())
 
         logger.info(
@@ -414,7 +402,6 @@ class TcpTunnelClient:
         """Handle an incoming local connection."""
         import time
 
-        # Generate connection ID
         connection_id = uuid4().bytes[:8]
 
         self._stats.connections_handled += 1
@@ -423,7 +410,6 @@ class TcpTunnelClient:
         logger.debug("Local connection accepted", connection_id=connection_id.hex())
 
         try:
-            # Start relaying data from local to remote
             while self._running:
                 try:
                     data = await asyncio.wait_for(
@@ -437,7 +423,6 @@ class TcpTunnelClient:
                 if not data:
                     break
 
-                # Send data through tunnel
                 msg = TcpRelayMessage.encode_data(connection_id, data)
                 if self._transport:
                     await self._transport.send(msg)
@@ -448,10 +433,8 @@ class TcpTunnelClient:
         except Exception as e:
             logger.debug("Local connection error", error=str(e))
         finally:
-            # Cleanup
             del self._connections[connection_id]
 
-            # Send close message
             if self._transport and self._running:
                 close_msg = TcpRelayMessage.encode_close(connection_id)
                 with contextlib.suppress(Exception):
@@ -484,7 +467,6 @@ class TcpTunnelClient:
                 self._stats.last_activity = time.time()
 
                 if msg_type == TcpRelayMessage.DATA:
-                    # Forward data to local connection
                     connection_id = msg_data["connection_id"]
                     payload = msg_data["data"]
 
@@ -496,18 +478,15 @@ class TcpTunnelClient:
                         self._stats.packets_received += 1
 
                 elif msg_type == TcpRelayMessage.CLOSE:
-                    # Close local connection
                     connection_id = msg_data["connection_id"]
                     if connection_id in self._connections:
                         _, writer = self._connections[connection_id]
                         writer.close()
 
                 elif msg_type == TcpRelayMessage.KEEPALIVE:
-                    # Respond to keepalive
                     pass
 
             except TimeoutError:
-                # Send keepalive
                 if self._transport:
                     keepalive = TcpRelayMessage.encode_keepalive(self._tunnel_id)
                     try:
@@ -535,7 +514,6 @@ class TcpTunnelClient:
         self._set_state(TcpTunnelState.CLOSING)
         self._running = False
 
-        # Cancel tasks
         if self._recv_task:
             self._recv_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -546,19 +524,16 @@ class TcpTunnelClient:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._keepalive_task
 
-        # Close all local connections
         for _connection_id, (_, writer) in list(self._connections.items()):
             writer.close()
             with contextlib.suppress(Exception):
                 await writer.wait_closed()
         self._connections.clear()
 
-        # Close local server
         if self._local_server:
             self._local_server.close()
             await self._local_server.wait_closed()
 
-        # Close transport
         if self._transport:
             await self._transport.close()
 

@@ -12,22 +12,36 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
 
+if TYPE_CHECKING:
+    from instanton.core.config import InstantonConfig
+
 logger = structlog.get_logger()
 
-# DNS cache for faster reconnections
 _dns_cache: dict[str, tuple[str, float]] = {}
-_DNS_CACHE_TTL = 300.0
 
-# Sleep detection constants
-# If time.sleep(N) takes more than N + SLEEP_DETECTION_THRESHOLD seconds,
-# we assume the system was sleeping/suspended
-SLEEP_DETECTION_THRESHOLD = 5.0  # seconds
+SLEEP_DETECTION_THRESHOLD = 5.0
+
+
+def _get_config() -> "InstantonConfig":
+    """Get config (lazy import to avoid circular imports)."""
+    from instanton.core.config import get_config
+    return get_config()
+
+
+def _get_dns_cache_ttl() -> float:
+    """Get DNS cache TTL from config (INSTANTON_DNS_CACHE_TTL)."""
+    return _get_config().resources.dns_cache_ttl
+
+
+def _get_dns_cache_size() -> int:
+    """Get DNS cache max size from config (INSTANTON_DNS_CACHE_SIZE)."""
+    return _get_config().resources.dns_cache_size
 
 
 async def resolve_host(host: str) -> str:
@@ -42,22 +56,20 @@ async def resolve_host(host: str) -> str:
     Returns:
         IP address or original hostname if resolution fails
     """
-    # Return as-is if already an IP address
     try:
         socket.inet_aton(host)
         return host
     except OSError:
         pass
 
-    # Check cache
     now = time.monotonic()
+    dns_ttl = _get_dns_cache_ttl()
     if host in _dns_cache:
         ip, cached_time = _dns_cache[host]
-        if now - cached_time < _DNS_CACHE_TTL:
+        if now - cached_time < dns_ttl:
             logger.debug("DNS cache hit", host=host, ip=ip)
             return ip
 
-    # Resolve in thread pool to not block
     try:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
@@ -65,8 +77,7 @@ async def resolve_host(host: str) -> str:
             lambda: socket.gethostbyname(host),
         )
         _dns_cache[host] = (result, now)
-        # Periodically clean up expired entries to prevent unbounded growth
-        if len(_dns_cache) > 100:
+        if len(_dns_cache) > _get_dns_cache_size():
             _cleanup_dns_cache()
         logger.debug("DNS resolved", host=host, ip=result)
         return result
@@ -83,7 +94,8 @@ def clear_dns_cache() -> None:
 def _cleanup_dns_cache() -> None:
     """Remove expired entries from DNS cache."""
     now = time.monotonic()
-    expired = [k for k, (_, ts) in _dns_cache.items() if now - ts > _DNS_CACHE_TTL]
+    dns_ttl = _get_dns_cache_ttl()
+    expired = [k for k, (_, ts) in _dns_cache.items() if now - ts > dns_ttl]
     for k in expired:
         _dns_cache.pop(k, None)
 
@@ -128,7 +140,7 @@ class TransportStats:
         if self.connection_start_time == 0:
             return False
         if self.uptime_seconds < 5.0:
-            return True  # Too early to tell
+            return True
         return self.last_ping_latency <= 5.0
 
 
@@ -190,12 +202,12 @@ class WebSocketTransport(Transport):
         self,
         *,
         auto_reconnect: bool = True,
-        max_reconnect_attempts: int = 15,  # Increased for resilience
+        max_reconnect_attempts: int = 15,
         reconnect_delay: float = 1.0,
         max_reconnect_delay: float = 60.0,
         ping_interval: float = 30.0,
-        ping_timeout: float = 15.0,  # Increased for high-latency networks
-        connect_timeout: float = 30.0,  # Increased for global users
+        ping_timeout: float = 15.0,
+        connect_timeout: float = 30.0,
     ):
         """Initialize WebSocket transport.
 
@@ -217,34 +229,27 @@ class WebSocketTransport(Transport):
         self._stats = TransportStats()
         self._addr: str = ""
 
-        # Reconnection settings
         self._auto_reconnect = auto_reconnect
         self._max_reconnect_attempts = max_reconnect_attempts
         self._reconnect_delay = reconnect_delay
         self._max_reconnect_delay = max_reconnect_delay
         self._current_reconnect_attempt = 0
 
-        # Heartbeat settings
         self._ping_interval = ping_interval
         self._ping_timeout = ping_timeout
         self._connect_timeout = connect_timeout
 
-        # Tasks
         self._heartbeat_task: asyncio.Task[Any] | None = None
         self._sleep_monitor_task: asyncio.Task[Any] | None = None
         self._reconnect_lock = asyncio.Lock()
-        # Track all background tasks for proper cleanup
         self._background_tasks: set[asyncio.Task[Any]] = set()
 
-        # Callbacks
         self._on_connect: list[Callable[[], Any]] = []
         self._on_disconnect: list[Callable[[], Any]] = []
         self._on_reconnect: list[Callable[[], Any]] = []
 
-        # Shutdown flag
         self._shutdown = False
 
-        # Sleep/wake detection
         self._last_sleep_check = time.monotonic()
         self._sleep_detected = False
 
@@ -293,41 +298,39 @@ class WebSocketTransport(Transport):
         self._shutdown = False
         self._state = ConnectionState.CONNECTING
 
-        # Pre-resolve DNS to speed up connection and get IPv4 address
-        # This fixes issues on Windows where IPv6 may cause connection problems
         host = addr.split(":")[0] if ":" in addr else addr
         port = addr.split(":")[1] if ":" in addr else "4443"
         original_host = host
 
         if not addr.startswith("ws://") and not addr.startswith("wss://"):
             resolved_ip = await resolve_host(host)
-            # Use resolved IP for connection but keep original host for SSL/Host header
             if resolved_ip != host:
                 addr = f"{resolved_ip}:{port}"
 
         url = self._build_url(addr)
-        logger.info("Connecting via WebSocket", url=url)
+        logger.debug("Connecting via WebSocket", url=url)
 
-        # Create SSL context for secure connections
-        # On Windows, we need explicit SSL context configuration
         ssl_context = None
         if url.startswith("wss://"):
             ssl_context = ssl.create_default_context()
-            # For self-signed certs or testing, you may need to disable verification
-            # In production, keep verification enabled
             ssl_context.check_hostname = False
             ssl_context.verify_mode = ssl.CERT_NONE
 
         try:
+            perf = _get_config().performance
+            timeouts = _get_config().timeouts
             self._ws = await asyncio.wait_for(
                 connect(
                     url,
                     ssl=ssl_context,
                     additional_headers={"Host": f"{original_host}:{port}"},
-                    ping_interval=None,  # We handle pings ourselves
+                    ping_interval=None,
                     ping_timeout=None,
-                    close_timeout=5,
+                    close_timeout=timeouts.ws_close_timeout,
                     open_timeout=self._connect_timeout,
+                    max_size=perf.ws_max_size,
+                    read_limit=perf.ws_read_buffer,
+                    write_limit=perf.ws_write_buffer,
                 ),
                 timeout=self._connect_timeout,
             )
@@ -336,15 +339,12 @@ class WebSocketTransport(Transport):
             self._stats.connection_start_time = time.time()
             self._current_reconnect_attempt = 0
 
-            logger.info("WebSocket connected", url=url)
+            logger.debug("WebSocket connected", url=url)
 
-            # Start heartbeat task
             self._start_heartbeat()
 
-            # Start sleep monitor task
             self._start_sleep_monitor()
 
-            # Fire connect callbacks
             await self._fire_callbacks(self._on_connect)
 
         except TimeoutError as e:
@@ -360,7 +360,6 @@ class WebSocketTransport(Transport):
         """Build WebSocket URL from address."""
         if addr.startswith("ws://") or addr.startswith("wss://"):
             return addr
-        # Default to secure WebSocket
         if ":" in addr:
             return f"wss://{addr}/tunnel"
         return f"wss://{addr}:4443/tunnel"
@@ -401,7 +400,7 @@ class WebSocketTransport(Transport):
         When resume is detected, it immediately triggers a connection
         health check and reconnection if needed.
         """
-        check_interval = 2.0  # Check every 2 seconds
+        check_interval = 2.0
 
         while not self._shutdown and self._state == ConnectionState.CONNECTED:
             try:
@@ -414,8 +413,6 @@ class WebSocketTransport(Transport):
 
                 elapsed = after_sleep - before_sleep
 
-                # If sleep took significantly longer than expected,
-                # system was likely suspended
                 if elapsed > check_interval + SLEEP_DETECTION_THRESHOLD:
                     logger.info(
                         "System resume detected",
@@ -425,8 +422,6 @@ class WebSocketTransport(Transport):
                     )
                     self._sleep_detected = True
 
-                    # Trigger immediate connection health check
-                    # The connection is likely dead after resume
                     await self._check_connection_after_resume()
 
                 self._last_sleep_check = after_sleep
@@ -448,11 +443,8 @@ class WebSocketTransport(Transport):
             return
 
         try:
-            # Send immediate ping with short timeout
             pong_waiter = await self._ws.ping()
             try:
-                # Use very short timeout - if connection is dead,
-                # we want to know immediately
                 await asyncio.wait_for(pong_waiter, timeout=3.0)
                 logger.info("Connection alive after resume")
                 self._sleep_detected = False
@@ -475,7 +467,6 @@ class WebSocketTransport(Transport):
                 if self._ws is None or self._state != ConnectionState.CONNECTED:
                     break
 
-                # Send ping and measure latency
                 start = time.time()
                 pong_waiter = await self._ws.ping()
 
@@ -486,7 +477,6 @@ class WebSocketTransport(Transport):
                     logger.debug("Heartbeat", latency_ms=round(latency * 1000, 2))
                 except TimeoutError:
                     logger.warning("Ping timeout, connection may be dead")
-                    # Trigger reconnection
                     await self._handle_disconnect()
                     break
 
@@ -514,7 +504,6 @@ class WebSocketTransport(Transport):
             self._stop_heartbeat()
             self._stop_sleep_monitor()
 
-            # Fire disconnect callbacks
             await self._fire_callbacks(self._on_disconnect)
 
             if self._auto_reconnect and not self._shutdown:
@@ -535,7 +524,6 @@ class WebSocketTransport(Transport):
         while not self._shutdown:
             self._current_reconnect_attempt += 1
 
-            # Check max attempts (0 = infinite)
             if (
                 self._max_reconnect_attempts > 0
                 and self._current_reconnect_attempt > self._max_reconnect_attempts
@@ -547,16 +535,13 @@ class WebSocketTransport(Transport):
                 self._state = ConnectionState.CLOSED
                 return
 
-            # First attempt is immediate for best UX
             if self._current_reconnect_attempt == 1:
                 delay = 0.0
             else:
-                # Calculate delay with exponential backoff
                 delay = min(
                     self._reconnect_delay * (2 ** (self._current_reconnect_attempt - 2)),
                     self._max_reconnect_delay,
                 )
-                # Add small jitter (10-20%) to prevent thundering herd
                 import random
 
                 jitter = delay * 0.1 * (1 + random.random())
@@ -577,12 +562,17 @@ class WebSocketTransport(Transport):
 
             try:
                 url = self._build_url(self._addr)
+                perf = _get_config().performance
+                timeouts = _get_config().timeouts
                 self._ws = await asyncio.wait_for(
                     connect(
                         url,
                         ping_interval=None,
                         ping_timeout=None,
-                        close_timeout=5,
+                        close_timeout=timeouts.ws_close_timeout,
+                        max_size=perf.ws_max_size,
+                        read_limit=perf.ws_read_buffer,
+                        write_limit=perf.ws_write_buffer,
                     ),
                     timeout=self._connect_timeout,
                 )
@@ -597,13 +587,10 @@ class WebSocketTransport(Transport):
                     reconnect_count=self._stats.reconnect_count,
                 )
 
-                # Start heartbeat
                 self._start_heartbeat()
 
-                # Start sleep monitor
                 self._start_sleep_monitor()
 
-                # Fire reconnect callbacks
                 await self._fire_callbacks(self._on_reconnect)
 
                 return
@@ -680,7 +667,6 @@ class WebSocketTransport(Transport):
         self._stop_heartbeat()
         self._stop_sleep_monitor()
 
-        # Cancel all background tasks
         for task in list(self._background_tasks):
             if not task.done():
                 task.cancel()
@@ -688,7 +674,6 @@ class WebSocketTransport(Transport):
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
         self._background_tasks.clear()
 
-        # Clear callbacks to prevent memory leaks from references
         self._on_connect.clear()
         self._on_disconnect.clear()
         self._on_reconnect.clear()
@@ -717,11 +702,6 @@ class WebSocketTransport(Transport):
         return self._stats
 
 
-# ==============================================================================
-# QUIC Transport Configuration
-# ==============================================================================
-
-
 @dataclass
 class QuicTransportConfig:
     """Configuration for QUIC transport connections.
@@ -732,23 +712,18 @@ class QuicTransportConfig:
 
     host: str = "localhost"
     port: int = 4433
-    server_name: str | None = None  # SNI hostname
+    server_name: str | None = None
     verify_ssl: bool = True
     cert_path: Path | None = None
     key_path: Path | None = None
     ca_path: Path | None = None
     alpn_protocols: list[str] = field(default_factory=lambda: ["instanton"])
-    idle_timeout: float = 60.0  # Increased for global users
-    connection_timeout: float = 30.0  # Increased for high-latency networks
+    idle_timeout: float = 60.0
+    connection_timeout: float = 30.0
     auto_reconnect: bool = True
-    max_reconnect_attempts: int = 15  # Increased for resilience
+    max_reconnect_attempts: int = 15
     reconnect_delay: float = 1.0
     max_reconnect_delay: float = 60.0
-
-
-# ==============================================================================
-# QUIC Stream Handler
-# ==============================================================================
 
 
 class QuicStreamHandler:
@@ -766,7 +741,6 @@ class QuicStreamHandler:
             self._recv_buffer.put_nowait(data)
         if end_stream:
             self._end_stream = True
-            # Signal end of stream with empty bytes
             self._recv_buffer.put_nowait(b"")
 
     async def read(self, timeout: float | None = None) -> bytes | None:
@@ -789,11 +763,6 @@ class QuicStreamHandler:
     def close(self) -> None:
         """Close the stream."""
         self._closed = True
-
-
-# ==============================================================================
-# QUIC Client Protocol
-# ==============================================================================
 
 
 class QuicClientProtocol:
@@ -835,7 +804,6 @@ class QuicClientProtocol:
             handler = self._streams[stream_id]
             handler.receive_data(event.data, event.end_stream)
 
-            # Also put in main queue for simple recv()
             if event.data:
                 self._recv_queue.put_nowait(event.data)
                 self._stats.bytes_received += len(event.data)
@@ -910,11 +878,6 @@ class QuicClientProtocol:
         return stream_id
 
 
-# ==============================================================================
-# QUIC Transport Implementation
-# ==============================================================================
-
-
 class QuicTransport(Transport):
     """QUIC transport implementation using aioquic.
 
@@ -967,7 +930,6 @@ class QuicTransport(Transport):
         self._reconnect_lock = asyncio.Lock()
         self._current_reconnect_attempt = 0
 
-        # Callbacks
         self._on_connect: list[Callable[[], Any]] = []
         self._on_disconnect: list[Callable[[], Any]] = []
         self._on_reconnect: list[Callable[[], Any]] = []
@@ -1005,7 +967,6 @@ class QuicTransport(Transport):
         self._shutdown = False
         self._state = ConnectionState.CONNECTING
 
-        # Parse address
         if ":" in addr:
             host, port_str = addr.rsplit(":", 1)
             port = int(port_str)
@@ -1024,7 +985,6 @@ class QuicTransport(Transport):
         from aioquic.asyncio.protocol import QuicConnectionProtocol
         from aioquic.quic.configuration import QuicConfiguration
 
-        # Create QUIC configuration
         configuration = QuicConfiguration(
             is_client=True,
             alpn_protocols=self._config.alpn_protocols,
@@ -1032,14 +992,11 @@ class QuicTransport(Transport):
             idle_timeout=self._config.idle_timeout,
         )
 
-        # Server name for SNI
         server_name = self._config.server_name or host
 
-        # Load CA certificates if specified
         if self._config.ca_path and self._config.ca_path.exists():
             configuration.load_verify_locations(str(self._config.ca_path))
 
-        # Load client certificate if specified
         if (
             self._config.cert_path
             and self._config.key_path
@@ -1051,7 +1008,7 @@ class QuicTransport(Transport):
                 str(self._config.key_path),
             )
 
-        logger.info(
+        logger.debug(
             "Connecting via QUIC",
             host=host,
             port=port,
@@ -1059,7 +1016,6 @@ class QuicTransport(Transport):
             alpn=configuration.alpn_protocols,
         )
 
-        # Reference to outer self for use in protocol class
         outer_self = self
 
         class InstantonQuicProtocol(QuicConnectionProtocol):
@@ -1078,7 +1034,6 @@ class QuicTransport(Transport):
                 self._protocol = protocol
                 self._quic = protocol._quic
 
-                # Wait for handshake to complete
                 await asyncio.wait_for(
                     self._connected_event.wait(),
                     timeout=self._config.connection_timeout,
@@ -1088,16 +1043,13 @@ class QuicTransport(Transport):
                 self._stats.connection_start_time = time.time()
                 self._current_reconnect_attempt = 0
 
-                # Open the main stream for communication
                 self._main_stream_id = self._quic.get_next_available_stream_id()
                 self._streams[self._main_stream_id] = QuicStreamHandler(self._main_stream_id)
 
-                logger.info("QUIC transport connected")
+                logger.debug("QUIC transport connected")
 
-                # Fire connect callbacks
                 await self._fire_callbacks(self._on_connect)
 
-                # Wait until closed
                 await self._closed_event.wait()
 
         except TimeoutError:
@@ -1132,7 +1084,6 @@ class QuicTransport(Transport):
             handler = self._streams[stream_id]
             handler.receive_data(event.data, event.end_stream)
 
-            # Also put in main queue for simple recv()
             if event.data:
                 self._recv_queue.put_nowait(event.data)
                 self._stats.bytes_received += len(event.data)
@@ -1164,10 +1115,8 @@ class QuicTransport(Transport):
             prev_state = self._state
             self._state = ConnectionState.DISCONNECTED
 
-            # Fire disconnect callbacks
             await self._fire_callbacks(self._on_disconnect)
 
-            # Only reconnect if we were previously connected
             if (
                 prev_state == ConnectionState.CONNECTED
                 and self._config.auto_reconnect
@@ -1185,7 +1134,6 @@ class QuicTransport(Transport):
         while not self._shutdown:
             self._current_reconnect_attempt += 1
 
-            # Check max attempts (0 = infinite)
             if (
                 self._config.max_reconnect_attempts > 0
                 and self._current_reconnect_attempt > self._config.max_reconnect_attempts
@@ -1197,7 +1145,6 @@ class QuicTransport(Transport):
                 self._state = ConnectionState.CLOSED
                 return
 
-            # Calculate delay with exponential backoff
             delay = min(
                 self._config.reconnect_delay * (2 ** (self._current_reconnect_attempt - 1)),
                 self._config.max_reconnect_delay,
@@ -1215,7 +1162,6 @@ class QuicTransport(Transport):
                 return
 
             try:
-                # Reset events for new connection
                 self._connected_event.clear()
                 self._closed_event.clear()
                 self._recv_queue = asyncio.Queue(maxsize=10000)
@@ -1229,7 +1175,6 @@ class QuicTransport(Transport):
                     reconnect_count=self._stats.reconnect_count,
                 )
 
-                # Fire reconnect callbacks
                 await self._fire_callbacks(self._on_reconnect)
 
                 return
@@ -1341,11 +1286,6 @@ class QuicTransport(Transport):
         return stream_id
 
 
-# ==============================================================================
-# QUIC Server Implementation
-# ==============================================================================
-
-
 class QuicServer:
     """High-level QUIC server for accepting tunnel connections.
 
@@ -1362,7 +1302,7 @@ class QuicServer:
             await protocol.send(b"Hello!")
 
         async with server:
-            await asyncio.Event().wait()  # Run forever
+            await asyncio.Event().wait()
         ```
     """
 
@@ -1421,14 +1361,12 @@ class QuicServer:
             StreamDataReceived,
         )
 
-        # Create server configuration
         configuration = QuicConfiguration(
             is_client=False,
             alpn_protocols=self._alpn_protocols,
             idle_timeout=self._idle_timeout,
         )
 
-        # Load server certificate (required)
         configuration.load_cert_chain(
             str(self._cert_path),
             str(self._key_path),
@@ -1436,7 +1374,6 @@ class QuicServer:
 
         logger.info("Starting QUIC server", host=self._host, port=self._port)
 
-        # Reference to outer self for use in protocol class
         outer_self = self
 
         class InstantonServerProtocol(QuicConnectionProtocol):
@@ -1448,7 +1385,6 @@ class QuicServer:
 
             def quic_event_received(self, event: Any) -> None:
                 if isinstance(event, HandshakeCompleted):
-                    # Create client protocol wrapper
                     config = QuicTransportConfig(
                         alpn_protocols=outer_self._alpn_protocols,
                         idle_timeout=outer_self._idle_timeout,

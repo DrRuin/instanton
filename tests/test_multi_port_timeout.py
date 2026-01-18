@@ -24,7 +24,7 @@ class TestClientConfigTimeout:
     def test_default_connect_timeout(self):
         """Test default connect_timeout value (increased for global users)."""
         config = ClientConfig()
-        assert config.connect_timeout == 30.0  # Increased for high-latency regions
+        assert config.connect_timeout == 30.0
 
     def test_default_idle_timeout(self):
         """Test default idle_timeout value."""
@@ -77,7 +77,7 @@ class TestClientConfigTimeout:
         """Test large timeout values for long-lived connections."""
         config = ClientConfig(
             connect_timeout=300.0,
-            idle_timeout=86400.0,  # 24 hours
+            idle_timeout=86400.0,
             keepalive_interval=60.0,
         )
         assert config.connect_timeout == 300.0
@@ -104,21 +104,19 @@ class TestCLITimeoutOptions:
     def test_cli_default_timeout_value(self, runner: CliRunner):
         """Test default timeout value in help text."""
         result = runner.invoke(main, ["--help"])
-        assert "30" in result.output  # default timeout and keepalive
+        assert "30" in result.output
 
     def test_cli_default_idle_timeout_value(self, runner: CliRunner):
         """Test default idle timeout value in help text."""
         result = runner.invoke(main, ["--help"])
-        assert "300" in result.output  # default idle timeout
+        assert "300" in result.output
 
     @patch("instanton.cli._run_tunnel_with_signal_handling")
     def test_cli_passes_timeout_to_start_tunnel(self, mock_run: MagicMock, runner: CliRunner):
         """Test that CLI passes timeout value to start_tunnel."""
-        # Mock to prevent actual execution
         mock_run.return_value = None
 
         runner.invoke(main, ["--port", "8000", "--timeout", "60"])
-        # The command now calls _run_tunnel_with_signal_handling
         mock_run.assert_called_once()
 
     @patch("instanton.cli._run_tunnel_with_signal_handling")
@@ -185,7 +183,7 @@ class TestMultiPortSupport:
         ]
 
         subdomains = [c.subdomain for c in configs]
-        assert len(subdomains) == len(set(subdomains))  # All unique
+        assert len(subdomains) == len(set(subdomains))
 
     def test_client_config_same_port_different_servers(self):
         """Test same port can connect to different servers."""
@@ -206,7 +204,6 @@ class TestMultiPortSupport:
         """Test creating multiple tunnel clients for different ports."""
         from instanton.client.tunnel import TunnelClient
 
-        # Create multiple clients (without connecting)
         clients = []
         for port, subdomain in [(3000, "frontend"), (5432, "db"), (8000, "api")]:
             client = TunnelClient(
@@ -234,12 +231,10 @@ class TestMultiPortSupport:
 
             from instanton.client.tunnel import TunnelClient
 
-            # Create clients
             client1 = TunnelClient(local_port=3000, subdomain="app1")
             client2 = TunnelClient(local_port=5432, subdomain="app2")
             client3 = TunnelClient(local_port=8000, subdomain="app3")
 
-            # Verify they have different ports
             assert client1.local_port != client2.local_port
             assert client2.local_port != client3.local_port
             assert client1.local_port != client3.local_port
@@ -249,8 +244,6 @@ class TestMultiPortSupport:
         runner = CliRunner()
         runner.invoke(main, ["--help"])
 
-        # Check for multi-port usage examples in docstring
-        # These are shown when running without arguments
         result_no_args = runner.invoke(main, [])
         assert "3000" in result_no_args.output or "port" in result_no_args.output.lower()
 
@@ -269,7 +262,6 @@ class TestTimeoutBehavior:
             config=config,
         )
 
-        # Client uses keepalive_interval from config
         assert client._keepalive_interval == config.keepalive_interval
 
     @pytest.mark.asyncio
@@ -283,7 +275,6 @@ class TestTimeoutBehavior:
             config=config,
         )
 
-        # Verify keepalive from config is used
         assert client._keepalive_interval == 25.0
 
     @pytest.mark.asyncio
@@ -323,19 +314,14 @@ class TestConcurrentTunnelScenarios:
             ),
         }
 
-        # Each config has unique port and subdomain
         ports = [c.local_port for c in configs.values()]
         subdomains = [c.subdomain for c in configs.values()]
 
         assert len(ports) == 3
-        assert len(set(ports)) == 3  # All unique
+        assert len(set(ports)) == 3
         assert len(subdomains) == 3
-        assert len(set(subdomains)) == 3  # All unique
+        assert len(set(subdomains)) == 3
 
-        # Verify expected URLs would be:
-        # frontend.instanton.dev -> localhost:3000
-        # database.instanton.dev -> localhost:5432
-        # api.instanton.dev -> localhost:8000
         assert configs["frontend"].subdomain == "frontend"
         assert configs["frontend"].local_port == 3000
 
@@ -350,7 +336,6 @@ class TestConcurrentTunnelScenarios:
         """Test creating multiple independent tunnel clients."""
         from instanton.client.tunnel import TunnelClient
 
-        # Create three independent clients as user would in separate terminals
         client_frontend = TunnelClient(
             local_port=3000,
             subdomain="frontend",
@@ -369,7 +354,6 @@ class TestConcurrentTunnelScenarios:
             server_addr="instanton.dev",
         )
 
-        # Verify independence
         assert client_frontend.local_port == 3000
         assert client_database.local_port == 5432
         assert client_api.local_port == 8000
@@ -382,7 +366,6 @@ class TestConcurrentTunnelScenarios:
         """Test CLI command format for multi-port usage."""
         runner = CliRunner()
 
-        # These commands should be valid (just check they parse correctly)
         commands = [
             ["--port", "3000", "--subdomain", "frontend", "--help"],
             ["--port", "5432", "--subdomain", "database", "--help"],
@@ -390,9 +373,7 @@ class TestConcurrentTunnelScenarios:
         ]
 
         for cmd in commands:
-            # Adding --help to not actually run the tunnel
             result = runner.invoke(main, cmd[:-1] + ["--help"])
-            # Should show help, meaning arguments parsed correctly
             assert result.exit_code == 0 or "--help" in result.output
 
 
@@ -414,11 +395,10 @@ class TestTimeoutEdgeCases:
         """Test very long timeout for long-lived connections (13+ minutes)."""
         config = ClientConfig(
             connect_timeout=60.0,
-            idle_timeout=3600.0,  # 1 hour
+            idle_timeout=3600.0,
             keepalive_interval=30.0,
         )
 
-        # 13 minutes = 780 seconds, should be well within idle_timeout
         thirteen_minutes = 13 * 60
         assert config.idle_timeout > thirteen_minutes
 
@@ -426,7 +406,7 @@ class TestTimeoutEdgeCases:
         """Test typical development timeout settings."""
         config = ClientConfig(
             connect_timeout=30.0,
-            idle_timeout=300.0,  # 5 minutes
+            idle_timeout=300.0,
             keepalive_interval=30.0,
         )
 
@@ -438,7 +418,7 @@ class TestTimeoutEdgeCases:
         """Test production-suitable timeout settings."""
         config = ClientConfig(
             connect_timeout=10.0,
-            idle_timeout=86400.0,  # 24 hours
+            idle_timeout=86400.0,
             keepalive_interval=60.0,
         )
 
@@ -566,7 +546,6 @@ class TestClientConfigIntegration:
             config=config,
         )
 
-        # TunnelClient stores keepalive_interval from config
         assert client._keepalive_interval == 20.0
         assert client.local_port == 8000
         assert client.server_addr == "instanton.dev:443"
@@ -578,6 +557,5 @@ class TestClientConfigIntegration:
 
         client = TunnelClient(local_port=8000)
 
-        # Should use default keepalive value
         assert client._keepalive_interval == 30.0
         assert client.local_port == 8000

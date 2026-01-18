@@ -26,8 +26,8 @@ from ipaddress import IPv4Address, IPv4Network, IPv6Address, IPv6Network, ip_add
 class IPPolicy(Enum):
     """Default policy when no rules match."""
 
-    ALLOW = "allow"  # Allow unless explicitly denied
-    DENY = "deny"  # Deny unless explicitly allowed
+    ALLOW = "allow"
+    DENY = "deny"
 
 
 @dataclass
@@ -83,21 +83,18 @@ class IPRestrictor:
 
         try:
             if "/" in rule:
-                # CIDR notation
                 network = ip_network(rule, strict=False)
                 if allow:
                     self._allow_networks.append(network)
                 else:
                     self._deny_networks.append(network)
             else:
-                # Single IP
                 addr = ip_address(rule)
                 if allow:
                     self._allow_exact.add(addr)
                 else:
                     self._deny_exact.add(addr)
         except ValueError:
-            # Invalid IP/CIDR, skip silently
             pass
 
     def is_allowed(self, ip: str) -> bool:
@@ -115,7 +112,6 @@ class IPRestrictor:
                 reason=f"Invalid IP address: {ip}",
             )
 
-        # Check deny exact match first (O(1))
         if addr in self._deny_exact:
             return IPCheckResult(
                 allowed=False,
@@ -123,7 +119,6 @@ class IPRestrictor:
                 reason="IP in deny list",
             )
 
-        # Check deny networks
         for network in self._deny_networks:
             if addr in network:
                 return IPCheckResult(
@@ -132,7 +127,6 @@ class IPRestrictor:
                     reason="IP in denied network",
                 )
 
-        # Check allow exact match (O(1))
         if addr in self._allow_exact:
             return IPCheckResult(
                 allowed=True,
@@ -140,7 +134,6 @@ class IPRestrictor:
                 reason="IP in allow list",
             )
 
-        # Check allow networks
         for network in self._allow_networks:
             if addr in network:
                 return IPCheckResult(
@@ -149,7 +142,6 @@ class IPRestrictor:
                     reason="IP in allowed network",
                 )
 
-        # Apply default policy
         if self.default_policy == IPPolicy.ALLOW:
             return IPCheckResult(
                 allowed=True,

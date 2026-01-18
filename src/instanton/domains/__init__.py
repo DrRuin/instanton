@@ -37,17 +37,13 @@ from instanton.domains.wildcards import (
 )
 
 __all__ = [
-    # Manager
     "DomainManager",
     "DomainStatus",
     "DomainInfo",
-    # Storage
     "DomainStore",
     "DomainRegistration",
-    # Verification
     "DNSVerifier",
     "VerificationResult",
-    # Wildcards
     "is_wildcard_pattern",
     "match_wildcard",
     "get_base_domain",

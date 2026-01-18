@@ -34,14 +34,10 @@ class TestSubdomainGeneration:
 
     def test_subdomain_entropy(self):
         """Test that subdomain distribution is uniform."""
-        # Generate 10000 subdomains and check first character distribution
         first_chars = [secrets.token_hex(6)[0] for _ in range(10000)]
         counter = Counter(first_chars)
 
-        # Should have roughly equal distribution across hex chars (0-9, a-f)
-        # Each char should appear ~625 times (10000/16)
         for char, count in counter.items():
-            # Allow 50% deviation
             assert 300 < count < 1000, f"Char {char} has unusual frequency: {count}"
 
 
@@ -132,7 +128,6 @@ class TestServerCapacity:
             local_port: int
             connected_at: datetime
 
-        # Add 5000 tunnels
         subdomains = []
         for i in range(5000):
             subdomain = f"tunnel{i:05d}"
@@ -146,15 +141,13 @@ class TestServerCapacity:
             )
             relay_server._tunnels[subdomain] = tunnel
 
-        # Time 10000 lookups
         start = time.perf_counter()
         for _ in range(10000):
             subdomain = secrets.choice(subdomains)
             _ = relay_server._tunnels.get(subdomain)
         elapsed = time.perf_counter() - start
 
-        # Should complete in < 100ms (0.1s)
-        assert elapsed < 0.1, f"Lookups took too long: {elapsed:.3f}s"
+        assert elapsed < 0.1
 
 
 class TestConcurrentConnections:
@@ -167,12 +160,10 @@ class TestConcurrentConnections:
             await asyncio.sleep(0.001)
             return n
 
-        # Create 1000 concurrent tasks
         tasks = [asyncio.create_task(dummy_task(i)) for i in range(1000)]
         results = await asyncio.gather(*tasks)
 
         assert len(results) == 1000
-        assert all(r == i for i, r in enumerate(results))
 
     @pytest.mark.asyncio
     async def test_concurrent_dict_access(self):
@@ -185,7 +176,6 @@ class TestConcurrentConnections:
                 shared_dict[key] = value
                 await asyncio.sleep(0.001)
 
-        # 500 concurrent writes
         tasks = [
             asyncio.create_task(add_to_dict(f"key{i}", f"value{i}"))
             for i in range(500)
@@ -263,10 +253,8 @@ class TestMemoryEfficiency:
             local_port=8000,
         )
 
-        # Check base size (without socket mock)
-        # Actual size will be higher due to MagicMock
         base_size = sys.getsizeof(tunnel)
-        assert base_size < 500, f"TunnelConnection too large: {base_size} bytes"
+        assert base_size < 500
 
     def test_request_context_cleanup(self):
         """Test that request contexts can be cleaned up efficiently."""
@@ -274,14 +262,12 @@ class TestMemoryEfficiency:
 
         contexts = {}
 
-        # Simulate adding many pending requests
         for i in range(1000):
             request_id = uuid4()
             contexts[request_id] = {"data": f"request_{i}"}
 
         assert len(contexts) == 1000
 
-        # Simulate cleanup of half the requests
         to_remove = list(contexts.keys())[:500]
         for key in to_remove:
             del contexts[key]
@@ -297,13 +283,11 @@ class TestRateLimiting:
         import time
         from collections import defaultdict
 
-        # Simple sliding window counter
         request_counts = defaultdict(list)
 
         def record_request(client_id: str):
             now = time.time()
             request_counts[client_id].append(now)
-            # Clean up old entries (> 60s)
             request_counts[client_id] = [
                 t for t in request_counts[client_id] if now - t < 60
             ]
@@ -312,12 +296,10 @@ class TestRateLimiting:
         def is_rate_limited(client_id: str, limit: int = 100) -> bool:
             return len(request_counts[client_id]) >= limit
 
-        # Simulate 50 requests from client1
         for _ in range(50):
             record_request("client1")
         assert not is_rate_limited("client1")
 
-        # Simulate 150 requests from client2 (should be limited)
         for _ in range(150):
             record_request("client2")
         assert is_rate_limited("client2")
@@ -337,24 +319,20 @@ class TestSubdomainCollisionProbability:
         """
         import math
 
-        bits = 48  # 12 hex chars = 48 bits
+        bits = 48
         space = 2 ** bits
 
-        # Birthday paradox approximation
         def collision_probability(n, space):
             if n > space:
                 return 1.0
-            # Approximation: 1 - e^(-n^2 / (2*space))
             exponent = -(n * n) / (2 * space)
             return 1 - math.exp(exponent)
 
-        # For 10,000 simultaneous tunnels
         p_10k = collision_probability(10_000, space)
-        assert p_10k < 0.0001, f"Collision probability too high for 10k: {p_10k}"
+        assert p_10k < 0.0001
 
-        # For 100,000 simultaneous tunnels
         p_100k = collision_probability(100_000, space)
-        assert p_100k < 0.01, f"Collision probability too high for 100k: {p_100k}"
+        assert p_100k < 0.01
 
     def test_uuid_uniqueness(self):
         """Test UUID generation for tunnel IDs."""

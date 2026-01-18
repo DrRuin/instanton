@@ -60,11 +60,9 @@ class TestIndefiniteTimeoutConfiguration:
 
     def test_proxy_config_long_timeout_for_long_apis(self):
         """Test very long timeout for 10+ minute API calls."""
-        # 15 minutes = 900 seconds
         config = ProxyConfig(read_timeout=900.0)
         assert config.read_timeout == 900.0
 
-        # 1 hour = 3600 seconds
         config = ProxyConfig(read_timeout=3600.0)
         assert config.read_timeout == 3600.0
 
@@ -89,7 +87,6 @@ class TestTunnelClientWithIndefiniteTimeout:
         """Test that default TunnelClient allows indefinite connections."""
         client = TunnelClient(local_port=8000)
 
-        # Default should be indefinite (None)
         assert client.proxy_config.read_timeout is None
 
     @pytest.mark.asyncio
@@ -140,13 +137,13 @@ class TestStreamingSupport:
         request_id = uuid4()
         chunk_start = ChunkStart(
             request_id=request_id,
-            total_size=None,  # Unknown for streaming
+            total_size=None,
             content_type="text/event-stream",
         )
 
         assert chunk_start.type == "chunk_start"
         assert chunk_start.request_id == request_id
-        assert chunk_start.total_size is None  # Streaming has unknown size
+        assert chunk_start.total_size is None
 
     def test_chunk_data_creation(self):
         """Test ChunkData message creation."""
@@ -179,7 +176,7 @@ class TestStreamingSupport:
     def test_create_chunks_function(self):
         """Test create_chunks helper function."""
         request_id = uuid4()
-        data = b"x" * 10000  # 10KB of data
+        data = b"x" * 10000
 
         start, chunks, end = create_chunks(
             data=data,
@@ -189,7 +186,7 @@ class TestStreamingSupport:
         )
 
         assert start.type == "chunk_start"
-        assert len(chunks) == 10  # 10KB / 1KB = 10 chunks
+        assert len(chunks) == 10
         assert end.type == "chunk_end"
 
     def test_chunk_assembler_streams(self):
@@ -198,7 +195,6 @@ class TestStreamingSupport:
         request_id = uuid4()
         stream_id = uuid4()
 
-        # Start stream
         start = ChunkStart(
             stream_id=stream_id,
             request_id=request_id,
@@ -206,7 +202,6 @@ class TestStreamingSupport:
         )
         assembler.start_stream(start)
 
-        # Add chunks
         for i in range(5):
             chunk = ChunkData(
                 stream_id=stream_id,
@@ -216,7 +211,6 @@ class TestStreamingSupport:
             )
             assembler.add_chunk(chunk)
 
-        # End stream
         end = ChunkEnd(
             stream_id=stream_id,
             request_id=request_id,
@@ -233,33 +227,30 @@ class TestLongRunningAPISupport:
 
     def test_config_supports_10_minute_timeout(self):
         """Test configuration supports 10 minute timeout."""
-        ten_minutes = 10 * 60  # 600 seconds
+        ten_minutes = 10 * 60
         config = ProxyConfig(read_timeout=ten_minutes)
         assert config.read_timeout == 600.0
 
     def test_config_supports_1_hour_timeout(self):
         """Test configuration supports 1 hour timeout."""
-        one_hour = 60 * 60  # 3600 seconds
+        one_hour = 60 * 60
         config = ProxyConfig(read_timeout=one_hour)
         assert config.read_timeout == 3600.0
 
     def test_indefinite_better_than_long_timeout(self):
         """Test that None (indefinite) is better than long timeout."""
-        # With None, connection never times out
         config = ProxyConfig(read_timeout=None)
         assert config.read_timeout is None
 
-        # This means a 30-minute API call will work
         thirty_minutes = 30 * 60
         assert config.read_timeout is None or config.read_timeout > thirty_minutes
 
     @pytest.mark.asyncio
     async def test_httpx_timeout_none_is_indefinite(self):
         """Test that httpx Timeout accepts None for indefinite."""
-        # This test verifies httpx behavior
         timeout = httpx.Timeout(
             connect=5.0,
-            read=None,  # Indefinite
+            read=None,
             write=5.0,
             pool=5.0,
         )
@@ -292,7 +283,7 @@ class TestStreamingProtocols:
         """Test chunked transfer encoding support."""
         chunk_start = ChunkStart(
             request_id=uuid4(),
-            total_size=None,  # Unknown for chunked
+            total_size=None,
             content_type="application/octet-stream",
         )
         assert chunk_start.total_size is None
@@ -307,19 +298,17 @@ class TestConnectionPersistence:
         config = ClientConfig(keepalive_interval=30.0)
         client = TunnelClient(local_port=8000, config=config)
 
-        # Keepalive should be configured
         assert client._keepalive_interval == 30.0
 
     @pytest.mark.asyncio
     async def test_tunnel_client_no_idle_disconnect_by_default(self):
         """Test that tunnel doesn't forcibly disconnect on idle."""
         proxy_config = ProxyConfig(
-            read_timeout=None,  # No timeout
-            stream_timeout=None,  # No streaming timeout
+            read_timeout=None,
+            stream_timeout=None,
         )
         client = TunnelClient(local_port=8000, proxy_config=proxy_config)
 
-        # No forced timeout
         assert client.proxy_config.read_timeout is None
         assert client.proxy_config.stream_timeout is None
 
@@ -329,7 +318,6 @@ class TestRealTimeStreamingScenarios:
 
     def test_websocket_upgrade_preserved(self):
         """Test that WebSocket upgrade requests are preserved."""
-        # WebSocket tunneling is handled at protocol level
         from instanton.protocol.messages import TunnelProtocol
 
         assert TunnelProtocol.WEBSOCKET == 4
@@ -354,16 +342,15 @@ class TestStreamingChunkSize:
         """Test default chunk size."""
         from instanton.protocol.messages import CHUNK_SIZE
 
-        assert CHUNK_SIZE == 64 * 1024  # 64KB
+        assert CHUNK_SIZE == 1024 * 1024
 
     def test_chunk_size_configurable(self):
         """Test that chunk size is configurable."""
         request_id = uuid4()
         data = b"x" * 10000
 
-        # With 2KB chunks
         start, chunks, end = create_chunks(data, request_id, chunk_size=2048)
-        assert len(chunks) == 5  # 10000 / 2048 = ~5 chunks
+        assert len(chunks) == 5
 
 
 class TestIndefiniteConnectionUseCases:
@@ -371,7 +358,6 @@ class TestIndefiniteConnectionUseCases:
 
     def test_ai_model_inference_use_case(self):
         """Test AI model inference that may take 10+ minutes."""
-        # AI inference can take very long
         config = ProxyConfig(read_timeout=None)
         assert config.read_timeout is None
 
@@ -393,7 +379,7 @@ class TestIndefiniteConnectionUseCases:
         """Test video streaming (indefinite duration)."""
         chunk_start = ChunkStart(
             request_id=uuid4(),
-            total_size=None,  # Unknown for live video
+            total_size=None,
             content_type="video/mp4",
         )
         assert chunk_start.total_size is None
@@ -404,7 +390,6 @@ class TestIndefiniteConnectionUseCases:
             read_timeout=None,
             stream_timeout=None,
         )
-        # Chat connections stay open indefinitely
         assert config.read_timeout is None
 
 
@@ -427,15 +412,13 @@ class TestHTTPClientCreation:
     @pytest.mark.asyncio
     async def test_http_client_allows_long_requests(self):
         """Test that HTTP client allows long-running requests."""
-        # Create client with no read timeout
         timeout = httpx.Timeout(
             connect=5.0,
-            read=None,  # No timeout
+            read=None,
             write=5.0,
             pool=5.0,
         )
 
-        # The timeout configuration should allow this
         assert timeout.read is None
 
 
@@ -455,7 +438,6 @@ class TestTunnelStreamingEnabled:
         """Test that tunnel supports chunked responses."""
         client = TunnelClient(local_port=8000)
 
-        # Client should have chunk assembler
         assert hasattr(client, "_chunk_assembler")
 
 
@@ -506,7 +488,6 @@ class TestCLITimeoutIntegration:
         """Test CLI configuration for streaming APIs."""
         mock_run.return_value = None
 
-        # For a streaming API endpoint
         runner.invoke(
             main,
             ["--port", "8000", "--no-request-timeout"],
@@ -527,13 +508,10 @@ class TestEdgeCases:
         config_none = ProxyConfig(read_timeout=None)
         config_zero = ProxyConfig(read_timeout=0.0)
 
-        # None means indefinite wait
         assert config_none.read_timeout is None
-        # Zero means immediate timeout
         assert config_zero.read_timeout == 0.0
 
     def test_negative_timeout_as_float(self):
         """Test that negative timeout is technically allowed by dataclass."""
-        # Note: httpx may reject this, but dataclass allows it
         config = ProxyConfig(read_timeout=-1.0)
         assert config.read_timeout == -1.0

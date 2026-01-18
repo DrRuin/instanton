@@ -120,7 +120,7 @@ class TestTunnelClientInit:
             keepalive_interval=60.0,
         )
         client = TunnelClient(
-            local_port=1234,  # Should be overridden by config
+            local_port=1234,
             config=config,
         )
         assert client.local_port == 9000
@@ -251,7 +251,6 @@ class TestStateHooks:
         client.add_state_hook(good_hook)
         client._set_state(ConnectionState.CONNECTED)
 
-        # good_hook should still be called
         assert called == [ConnectionState.CONNECTED]
 
     def test_no_duplicate_state_notification(self, client: TunnelClient) -> None:
@@ -263,7 +262,7 @@ class TestStateHooks:
 
         client.add_state_hook(hook)
         client._set_state(ConnectionState.CONNECTING)
-        client._set_state(ConnectionState.CONNECTING)  # Same state
+        client._set_state(ConnectionState.CONNECTING)
 
         assert states == [ConnectionState.CONNECTING]
 
@@ -278,7 +277,6 @@ class TestConnect:
         """Test successful connection."""
         tunnel_id = uuid4()
 
-        # Queue the responses
         negotiate_response = NegotiateResponse(
             server_version=2,
             selected_compression=0,
@@ -313,7 +311,6 @@ class TestConnect:
         """Test connection with error response."""
         from instanton.core.exceptions import SubdomainTakenError
 
-        # Queue the responses
         negotiate_response = NegotiateResponse(success=True)
         error_response = ConnectResponse(
             type="error",
@@ -356,7 +353,6 @@ class TestMessageHandling:
         pong = Pong(timestamp=12345, server_time=12346)
         data = encode_message(pong)
 
-        # Should not raise
         await client._handle_message(data)
 
     @pytest.mark.asyncio
@@ -387,7 +383,6 @@ class TestHttpRequestProxying:
             headers={"Accept": "application/json"},
         )
 
-        # Mock HTTP client response
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.headers = {"Content-Type": "application/json"}
@@ -402,8 +397,6 @@ class TestHttpRequestProxying:
 
         await client._handle_http_request(http_request)
 
-        # Verify HTTP client was called correctly
-        # Note: Host header is now added by the client for local service compatibility
         mock_http_client.request.assert_called_once_with(
             method="GET",
             url="http://localhost:8080/api/test",
@@ -411,7 +404,6 @@ class TestHttpRequestProxying:
             content=b"",
         )
 
-        # Verify response was sent
         assert len(mock_transport._sent) == 1
 
     @pytest.mark.asyncio
@@ -462,11 +454,10 @@ class TestHttpRequestProxying:
 
         client._transport = mock_transport
         client._http_client = mock_http_client
-        client.proxy_config = ProxyConfig(retry_count=0)  # No retries
+        client.proxy_config = ProxyConfig(retry_count=0)
 
         await client._handle_http_request(http_request)
 
-        # Should send 502 error response
         assert len(mock_transport._sent) == 1
 
     @pytest.mark.asyncio
@@ -490,7 +481,6 @@ class TestHttpRequestProxying:
 
         await client._handle_http_request(http_request)
 
-        # Should send 502 error response
         assert len(mock_transport._sent) == 1
 
     @pytest.mark.asyncio
@@ -511,7 +501,6 @@ class TestHttpRequestProxying:
         mock_response.content = b"OK"
 
         mock_http_client = AsyncMock()
-        # First call fails, second succeeds
         mock_http_client.request.side_effect = [
             httpx.ConnectError("Connection refused"),
             mock_response,
@@ -523,7 +512,6 @@ class TestHttpRequestProxying:
 
         await client._handle_http_request(http_request)
 
-        # Should have retried and succeeded
         assert mock_http_client.request.call_count == 2
         assert len(mock_transport._sent) == 1
 
@@ -546,9 +534,9 @@ class TestReconnect:
         client.reconnect_config = ReconnectConfig(
             enabled=True,
             max_attempts=2,
-            base_delay=0.01,  # Very short for testing
+            base_delay=0.01,
         )
-        client._reconnect_attempt = 2  # Already at max
+        client._reconnect_attempt = 2
 
         await client._attempt_reconnect()
 
@@ -614,13 +602,17 @@ class TestReconnectConfig:
     """Test ReconnectConfig dataclass."""
 
     def test_default_values(self) -> None:
-        """Test default values optimized for global users."""
+        """Test default values from global config."""
+        from instanton.core.config import get_config
+
+        global_cfg = get_config()
         config = ReconnectConfig()
-        assert config.enabled
-        assert config.max_attempts == 15  # Increased for resilience
-        assert config.base_delay == 1.0
-        assert config.max_delay == 60.0
-        assert config.jitter == 0.2  # Increased to reduce reconnection storms
+
+        assert config.enabled == global_cfg.reconnect.auto_reconnect
+        assert config.max_attempts == global_cfg.reconnect.max_attempts
+        assert config.base_delay == global_cfg.reconnect.base_delay
+        assert config.max_delay == global_cfg.reconnect.max_delay
+        assert config.jitter == global_cfg.reconnect.jitter
 
     def test_custom_values(self) -> None:
         """Test custom values."""
@@ -639,17 +631,21 @@ class TestProxyConfig:
     """Test ProxyConfig dataclass."""
 
     def test_default_values(self) -> None:
-        """Test default values."""
+        """Test default values from global config."""
+        from instanton.core.config import get_config
+
+        global_cfg = get_config()
         config = ProxyConfig()
-        assert config.connect_timeout == 5.0
-        assert config.read_timeout is None  # None = indefinite for long-running APIs
-        assert config.write_timeout == 5.0
+
+        assert config.connect_timeout == global_cfg.timeouts.connect_timeout
+        assert config.read_timeout is None
+        assert config.write_timeout == global_cfg.timeouts.write_timeout
         assert config.pool_timeout == 5.0
-        assert config.max_connections == 100
-        assert config.max_keepalive == 20
+        assert config.max_connections == global_cfg.resources.max_connections
+        assert config.max_keepalive == global_cfg.resources.max_keepalive
         assert config.retry_count == 2
         assert config.retry_on_status == (502, 503, 504)
-        assert config.stream_timeout is None  # None = indefinite streaming
+        assert config.stream_timeout is None
 
     def test_custom_values(self) -> None:
         """Test custom values."""
@@ -673,7 +669,6 @@ class TestCreateHttpClient:
 
         try:
             assert http_client is not None
-            # Check timeout is configured
             assert http_client.timeout.connect == client.proxy_config.connect_timeout
             assert http_client.timeout.read == client.proxy_config.read_timeout
         finally:

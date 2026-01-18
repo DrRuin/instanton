@@ -24,11 +24,6 @@ class InstantonError(Exception):
         return f"[{self.code}] {self.message}"
 
 
-# =============================================================================
-# Connection Errors
-# =============================================================================
-
-
 class ConnectionError(InstantonError):
     """Base class for connection-related errors."""
 
@@ -80,11 +75,6 @@ class SSLError(ConnectionError):
             "If using a self-signed certificate, ensure it's properly configured.",
             code="SSL_ERROR",
         )
-
-
-# =============================================================================
-# Tunnel Errors
-# =============================================================================
 
 
 class TunnelError(InstantonError):
@@ -144,11 +134,6 @@ class TunnelDisconnectedError(TunnelError):
         super().__init__(msg, code="TUNNEL_DISCONNECTED")
 
 
-# =============================================================================
-# Authentication Errors
-# =============================================================================
-
-
 class AuthenticationError(InstantonError):
     """Base class for authentication-related errors."""
 
@@ -187,11 +172,6 @@ class PermissionDeniedError(AuthenticationError):
         super().__init__(msg, code="PERMISSION_DENIED")
 
 
-# =============================================================================
-# Rate Limiting Errors
-# =============================================================================
-
-
 class RateLimitError(InstantonError):
     """Raised when rate limit is exceeded."""
 
@@ -202,11 +182,6 @@ class RateLimitError(InstantonError):
         else:
             msg += " Please wait before making more requests."
         super().__init__(msg, code="RATE_LIMITED", details={"retry_after": retry_after})
-
-
-# =============================================================================
-# Protocol Errors
-# =============================================================================
 
 
 class ProtocolError(InstantonError):
@@ -236,11 +211,6 @@ class MessageDecodingError(ProtocolError):
         if reason:
             msg += f" Reason: {reason}"
         super().__init__(msg, code="MESSAGE_DECODE_ERROR")
-
-
-# =============================================================================
-# Local Service Errors
-# =============================================================================
 
 
 class LocalServiceError(InstantonError):
@@ -273,11 +243,6 @@ class LocalServiceTimeoutError(LocalServiceError):
         )
 
 
-# =============================================================================
-# Configuration Errors
-# =============================================================================
-
-
 class ConfigurationError(InstantonError):
     """Raised when there's a configuration issue."""
 
@@ -293,11 +258,6 @@ class InvalidPortError(ConfigurationError):
         self.details = {"port": port}
 
 
-# =============================================================================
-# Utility Functions
-# =============================================================================
-
-
 def format_error_for_user(error: Exception) -> str:
     """Format any exception into a user-friendly message.
 
@@ -307,11 +267,9 @@ def format_error_for_user(error: Exception) -> str:
     if isinstance(error, InstantonError):
         return str(error)
 
-    # Handle common system exceptions
     error_type = type(error).__name__
     error_msg = str(error)
 
-    # Connection errors
     if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
         return "[CONNECTION_TIMEOUT] Connection timed out. Please check your network."
 
@@ -324,5 +282,4 @@ def format_error_for_user(error: Exception) -> str:
     if "dns" in error_msg.lower() or "name resolution" in error_msg.lower():
         return "[DNS_ERROR] Cannot resolve server address. Please check your connection."
 
-    # Generic fallback - don't expose internal details
     return f"[ERROR] An error occurred: {error_type}. Please try again or check logs for details."

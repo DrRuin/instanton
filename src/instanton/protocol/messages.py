@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from enum import IntEnum
-from typing import Any, Literal
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID, uuid4
 
 import brotli
@@ -11,6 +12,9 @@ import lz4.frame
 import msgpack
 import zstandard as zstd
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from instanton.core.config import PerformanceConfig
 
 
 class ErrorCode(IntEnum):
@@ -47,20 +51,69 @@ class CompressionType(IntEnum):
     NONE = 0
     LZ4 = 1
     ZSTD = 2
-    BROTLI = 3  # Google's compression algorithm - better ratio for web content
+    BROTLI = 3
 
 
-# Protocol constants
 PROTOCOL_VERSION = 2
 MAGIC = b"TACH"
-MAX_MESSAGE_SIZE = 16 * 1024 * 1024  # 16 MB
-CHUNK_SIZE = 64 * 1024  # 64 KB default chunk size
-MIN_COMPRESSION_SIZE = 1024  # Only compress messages > 1KB
+
+_DEFAULT_MAX_MESSAGE_SIZE = 64 * 1024 * 1024
+_DEFAULT_CHUNK_SIZE = 1024 * 1024
+_DEFAULT_MIN_COMPRESSION_SIZE = 1024
+
+MAX_MESSAGE_SIZE = _DEFAULT_MAX_MESSAGE_SIZE
+CHUNK_SIZE = _DEFAULT_CHUNK_SIZE
+MIN_COMPRESSION_SIZE = _DEFAULT_MIN_COMPRESSION_SIZE
+SKIP_COMPRESSION_TYPES = {
+    "image/", "video/", "audio/", "application/zip", "application/gzip",
+    "application/x-rar", "application/x-7z", "application/pdf",
+    "application/octet-stream",
+}
 
 
-# Pre-create compressors for performance
-_zstd_compressor = zstd.ZstdCompressor(level=3)
+def _get_perf_config() -> "PerformanceConfig":
+    """Get performance config (lazy import to avoid circular imports)."""
+    from instanton.core.config import get_config
+    return get_config().performance
+
+
+def get_chunk_size() -> int:
+    """Get chunk size from config."""
+    return _get_perf_config().chunk_size
+
+
+def get_max_message_size() -> int:
+    """Get max message size from config."""
+    return _get_perf_config().max_message_size
+
+
+def get_min_compression_size() -> int:
+    """Get min compression size from config."""
+    return _get_perf_config().min_compression_size
+
+
+def get_skip_compression_types() -> set[str]:
+    """Get skip compression types from config."""
+    return _get_perf_config().get_skip_compression_types()
+
+
+def is_compression_enabled() -> bool:
+    """Check if compression is enabled."""
+    return _get_perf_config().compression_enabled
+
+
+def get_compression_level() -> int:
+    """Get compression level from config."""
+    return _get_perf_config().compression_level
+
+
 _zstd_decompressor = zstd.ZstdDecompressor()
+
+
+@lru_cache(maxsize=20)
+def _get_zstd_compressor(level: int) -> zstd.ZstdCompressor:
+    """Get a cached ZSTD compressor for the given level."""
+    return zstd.ZstdCompressor(level=level)
 
 
 def compress_data(data: bytes, compression: CompressionType) -> bytes:
@@ -70,10 +123,12 @@ def compress_data(data: bytes, compression: CompressionType) -> bytes:
     elif compression == CompressionType.LZ4:
         return lz4.frame.compress(data)
     elif compression == CompressionType.ZSTD:
-        return _zstd_compressor.compress(data)
+        level = get_compression_level()
+        return _get_zstd_compressor(level).compress(data)
     elif compression == CompressionType.BROTLI:
-        # Quality 4 provides good balance of speed and compression
-        return brotli.compress(data, quality=4)
+        level = get_compression_level()
+        quality = min(max(level // 2 + 1, 1), 11)
+        return brotli.compress(data, quality=quality)
     else:
         raise ValueError(f"Unsupported compression type: {compression}")
 
@@ -90,11 +145,6 @@ def decompress_data(data: bytes, compression: CompressionType) -> bytes:
         return brotli.decompress(data)
     else:
         raise ValueError(f"Unsupported compression type: {compression}")
-
-
-# ==============================================================================
-# Protocol Negotiation Messages
-# ==============================================================================
 
 
 class NegotiateRequest(BaseModel):
@@ -126,11 +176,6 @@ class NegotiateResponse(BaseModel):
     error: str | None = None
 
 
-# ==============================================================================
-# Connection Messages
-# ==============================================================================
-
-
 class ConnectRequest(BaseModel):
     """Client request to establish tunnel."""
 
@@ -138,9 +183,7 @@ class ConnectRequest(BaseModel):
     subdomain: str | None = None
     local_port: int
     version: int = PROTOCOL_VERSION
-    # Authentication token (JWT or API key)
     auth_token: str | None = None
-    # Optional auth method hint
     auth_method: int | None = None
 
 
@@ -153,11 +196,6 @@ class ConnectResponse(BaseModel):
     url: str = ""
     error: str | None = None
     error_code: ErrorCode | None = None
-
-
-# ==============================================================================
-# HTTP Messages
-# ==============================================================================
 
 
 class HttpRequest(BaseModel):
@@ -181,20 +219,14 @@ class HttpResponse(BaseModel):
     body: bytes = b""
 
 
-# ==============================================================================
-# Streaming Chunk Messages
-# ==============================================================================
-
-
 class ChunkStart(BaseModel):
     """Indicates start of a chunked transfer."""
 
     type: Literal["chunk_start"] = "chunk_start"
     stream_id: UUID = Field(default_factory=uuid4)
     request_id: UUID
-    total_size: int | None = None  # None if unknown (streaming)
+    total_size: int | None = None
     content_type: str = "application/octet-stream"
-    # HTTP response metadata for chunked responses
     status: int = 200
     headers: dict[str, str] = Field(default_factory=dict)
 
@@ -215,7 +247,7 @@ class ChunkEnd(BaseModel):
     type: Literal["chunk_end"] = "chunk_end"
     stream_id: UUID
     total_chunks: int
-    checksum: str | None = None  # Optional SHA-256 checksum
+    checksum: str | None = None
 
 
 class ChunkAck(BaseModel):
@@ -224,12 +256,7 @@ class ChunkAck(BaseModel):
     type: Literal["chunk_ack"] = "chunk_ack"
     stream_id: UUID
     last_received_sequence: int
-    window_size: int = 16  # How many more chunks can be sent
-
-
-# ==============================================================================
-# Keep-alive Messages
-# ==============================================================================
+    window_size: int = 16
 
 
 class Ping(BaseModel):
@@ -252,88 +279,6 @@ class Disconnect(BaseModel):
 
     type: Literal["disconnect"] = "disconnect"
     reason: str = ""
-
-
-# ==============================================================================
-# Authentication Messages
-# ==============================================================================
-
-
-class AuthMethod(IntEnum):
-    """Supported authentication methods."""
-
-    NONE = 0
-    API_KEY = 1
-    JWT = 2
-    BASIC = 3
-    OAUTH = 4
-    MTLS = 5
-
-
-class AuthRequest(BaseModel):
-    """Client authentication request.
-
-    Sent before or with ConnectRequest to authenticate the client.
-    """
-
-    type: Literal["auth_request"] = "auth_request"
-    method: int = AuthMethod.API_KEY
-    # API Key auth
-    api_key: str | None = None
-    # JWT auth
-    token: str | None = None
-    # Basic auth
-    username: str | None = None
-    password: str | None = None
-    # OAuth
-    access_token: str | None = None
-    provider: str | None = None
-    # mTLS (cert info is extracted from connection)
-    cert_fingerprint: str | None = None
-    # Request metadata
-    client_id: str | None = None
-    client_version: str | None = None
-
-
-class AuthResponse(BaseModel):
-    """Server authentication response."""
-
-    type: Literal["auth_response"] = "auth_response"
-    success: bool = False
-    error: str | None = None
-    error_code: ErrorCode | None = None
-    # Granted permissions
-    identity: str | None = None
-    scopes: list[str] = Field(default_factory=list)
-    # Token info (if JWT was issued)
-    access_token: str | None = None
-    refresh_token: str | None = None
-    expires_in: int | None = None
-    token_type: str = "Bearer"
-
-
-class TokenRefreshRequest(BaseModel):
-    """Request to refresh an access token."""
-
-    type: Literal["token_refresh"] = "token_refresh"
-    refresh_token: str
-    scopes: list[str] | None = None
-
-
-class TokenRefreshResponse(BaseModel):
-    """Response with new tokens."""
-
-    type: Literal["token_refresh_response"] = "token_refresh_response"
-    success: bool = False
-    error: str | None = None
-    access_token: str | None = None
-    refresh_token: str | None = None
-    expires_in: int | None = None
-
-
-# ==============================================================================
-# TCP Tunnel Messages
-# ==============================================================================
 
 
 class TcpTunnelOpen(BaseModel):
@@ -373,11 +318,6 @@ class TcpTunnelClose(BaseModel):
     reason: str = ""
 
 
-# ==============================================================================
-# UDP Datagram Messages
-# ==============================================================================
-
-
 class UdpTunnelOpen(BaseModel):
     """Request to open a UDP tunnel."""
 
@@ -413,11 +353,6 @@ class UdpTunnelClose(BaseModel):
     type: Literal["udp_tunnel_close"] = "udp_tunnel_close"
     tunnel_id: UUID
     reason: str = ""
-
-
-# ==============================================================================
-# WebSocket Passthrough Messages
-# ==============================================================================
 
 
 class WebSocketOpcode(IntEnum):
@@ -477,11 +412,6 @@ class WebSocketClose(BaseModel):
     reason: str = ""
 
 
-# ==============================================================================
-# gRPC Streaming Messages
-# ==============================================================================
-
-
 class GrpcStreamOpen(BaseModel):
     """Request to open a gRPC stream tunnel."""
 
@@ -506,10 +436,7 @@ class GrpcStreamOpened(BaseModel):
 
 
 class GrpcFrame(BaseModel):
-    """gRPC frame for streaming passthrough.
-
-    gRPC frame format: 1 byte compressed flag + 4 bytes length + data
-    """
+    """gRPC frame for streaming passthrough."""
 
     type: Literal["grpc_frame"] = "grpc_frame"
     tunnel_id: UUID
@@ -521,12 +448,12 @@ class GrpcFrame(BaseModel):
 
 
 class GrpcTrailers(BaseModel):
-    """gRPC trailing metadata (status, etc.)."""
+    """gRPC trailing metadata."""
 
     type: Literal["grpc_trailers"] = "grpc_trailers"
     tunnel_id: UUID
     stream_id: UUID
-    status: int = 0  # gRPC status code
+    status: int = 0
     message: str = ""
     trailers: dict[str, str] = Field(default_factory=dict)
 
@@ -541,10 +468,6 @@ class GrpcStreamClose(BaseModel):
     message: str = ""
 
 
-# ==============================================================================
-# Union Types for Message Handling
-# ==============================================================================
-
 ClientMessage = (
     NegotiateRequest
     | ConnectRequest
@@ -554,19 +477,15 @@ ClientMessage = (
     | ChunkAck
     | Ping
     | Disconnect
-    # TCP tunnel messages
     | TcpTunnelOpen
     | TcpData
     | TcpTunnelClose
-    # UDP tunnel messages
     | UdpTunnelOpen
     | UdpDatagram
     | UdpTunnelClose
-    # WebSocket messages
     | WebSocketUpgrade
     | WebSocketFrame
     | WebSocketClose
-    # gRPC messages
     | GrpcStreamOpen
     | GrpcFrame
     | GrpcStreamClose
@@ -581,19 +500,15 @@ ServerMessage = (
     | ChunkEnd
     | ChunkAck
     | Pong
-    # TCP tunnel responses
     | TcpTunnelOpened
     | TcpData
     | TcpTunnelClose
-    # UDP tunnel responses
     | UdpTunnelOpened
     | UdpDatagram
     | UdpTunnelClose
-    # WebSocket responses
     | WebSocketUpgradeResponse
     | WebSocketFrame
     | WebSocketClose
-    # gRPC responses
     | GrpcStreamOpened
     | GrpcFrame
     | GrpcTrailers
@@ -602,19 +517,11 @@ ServerMessage = (
 
 AllMessages = ClientMessage | ServerMessage
 
-# TCP tunnel message types
 TcpTunnelMessage = TcpTunnelOpen | TcpTunnelOpened | TcpData | TcpTunnelClose
-
-# UDP tunnel message types
 UdpTunnelMessage = UdpTunnelOpen | UdpTunnelOpened | UdpDatagram | UdpTunnelClose
-
-# WebSocket message types
 WebSocketMessage = WebSocketUpgrade | WebSocketUpgradeResponse | WebSocketFrame | WebSocketClose
-
-# gRPC message types
 GrpcMessage = GrpcStreamOpen | GrpcStreamOpened | GrpcFrame | GrpcTrailers | GrpcStreamClose
 
-# Message type lookup for deserialization
 MESSAGE_TYPES: dict[str, type[BaseModel]] = {
     "negotiate": NegotiateRequest,
     "negotiate_response": NegotiateResponse,
@@ -630,33 +537,24 @@ MESSAGE_TYPES: dict[str, type[BaseModel]] = {
     "ping": Ping,
     "pong": Pong,
     "disconnect": Disconnect,
-    # TCP tunnel messages
     "tcp_tunnel_open": TcpTunnelOpen,
     "tcp_tunnel_opened": TcpTunnelOpened,
     "tcp_data": TcpData,
     "tcp_tunnel_close": TcpTunnelClose,
-    # UDP tunnel messages
     "udp_tunnel_open": UdpTunnelOpen,
     "udp_tunnel_opened": UdpTunnelOpened,
     "udp_datagram": UdpDatagram,
     "udp_tunnel_close": UdpTunnelClose,
-    # WebSocket messages
     "websocket_upgrade": WebSocketUpgrade,
     "websocket_upgrade_response": WebSocketUpgradeResponse,
     "websocket_frame": WebSocketFrame,
     "websocket_close": WebSocketClose,
-    # gRPC messages
     "grpc_stream_open": GrpcStreamOpen,
     "grpc_stream_opened": GrpcStreamOpened,
     "grpc_frame": GrpcFrame,
     "grpc_trailers": GrpcTrailers,
     "grpc_stream_close": GrpcStreamClose,
 }
-
-
-# ==============================================================================
-# Encoding / Decoding with Compression
-# ==============================================================================
 
 
 def _msgpack_default(obj: Any) -> Any:
@@ -667,10 +565,7 @@ def _msgpack_default(obj: Any) -> Any:
 
 
 def _serialize_for_msgpack(data: Any) -> Any:
-    """Recursively convert data for msgpack serialization.
-
-    Converts UUIDs to strings while preserving bytes as-is.
-    """
+    """Recursively convert data for msgpack serialization."""
     if isinstance(data, dict):
         return {k: _serialize_for_msgpack(v) for k, v in data.items()}
     elif isinstance(data, list):
@@ -678,45 +573,66 @@ def _serialize_for_msgpack(data: Any) -> Any:
     elif isinstance(data, UUID):
         return str(data)
     elif isinstance(data, bytes):
-        return data  # Keep bytes as-is for msgpack bin type
+        return data
     return data
+
+
+def _should_skip_compression(msg: BaseModel, payload_size: int) -> bool:
+    """Check if compression should be skipped for this message."""
+    if not is_compression_enabled():
+        return True
+
+    if payload_size > 100 * 1024:
+        return True
+
+    msg_type = getattr(msg, "type", "")
+
+    if msg_type == "chunk_data":
+        return True
+
+    if msg_type in ("http_request", "http_response"):
+        headers = getattr(msg, "headers", {}) or {}
+        content_type = ""
+        for k, v in headers.items():
+            if k.lower() == "content-type":
+                content_type = v.lower()
+                break
+
+        skip_types = get_skip_compression_types()
+        for skip_type in skip_types:
+            if skip_type in content_type:
+                return True
+
+    return False
 
 
 def encode_message(
     msg: BaseModel,
     compression: CompressionType = CompressionType.NONE,
 ) -> bytes:
-    """Encode a message with protocol framing and optional compression.
-
-    Frame format:
-    - MAGIC (4 bytes): b"TACH"
-    - VERSION (1 byte): Protocol version
-    - FLAGS (1 byte): Bit flags (bits 0-1: compression type)
-    - LENGTH (4 bytes): Payload length (little-endian)
-    - PAYLOAD (variable): msgpack-encoded message
-    """
-    # Use model_dump() without mode="json" to preserve bytes fields as binary
-    # mode="json" would convert bytes to base64 strings which breaks binary data
-    # Then serialize UUIDs to strings while keeping bytes as bytes
+    """Encode a message with protocol framing and optional compression."""
     data = _serialize_for_msgpack(msg.model_dump())
     payload = msgpack.packb(data, use_bin_type=True)
 
-    # Auto-select compression for large payloads if none specified
-    if compression == CompressionType.NONE and len(payload) > MIN_COMPRESSION_SIZE:
+    skip_compression = _should_skip_compression(msg, len(payload))
+
+    min_size = get_min_compression_size()
+    if not skip_compression and compression == CompressionType.NONE and len(payload) > min_size:
         compression = CompressionType.ZSTD
 
-    # Compress if enabled
-    if compression != CompressionType.NONE:
+    if not skip_compression and compression != CompressionType.NONE:
         payload = compress_data(payload, compression)
+    else:
+        compression = CompressionType.NONE
 
-    if len(payload) > MAX_MESSAGE_SIZE:
-        raise ValueError(f"Message too large: {len(payload)} bytes")
+    max_size = get_max_message_size()
+    if len(payload) > max_size:
+        raise ValueError(f"Message too large: {len(payload)} bytes (max: {max_size})")
 
-    # Frame: MAGIC (4) + VERSION (1) + FLAGS (1) + LENGTH (4) + PAYLOAD
     frame = bytearray()
     frame.extend(MAGIC)
     frame.append(PROTOCOL_VERSION)
-    frame.append(compression)  # FLAGS byte stores compression type
+    frame.append(compression)
     frame.extend(len(payload).to_bytes(4, "little"))
     frame.extend(payload)
 
@@ -724,10 +640,7 @@ def encode_message(
 
 
 def decode_message(data: bytes) -> dict[str, Any]:
-    """Decode a framed message with automatic decompression.
-
-    Returns the raw dict from msgpack. Use parse_message() to get a typed model.
-    """
+    """Decode a framed message with automatic decompression."""
     if len(data) < 10:
         raise ValueError("Message too short")
 
@@ -739,22 +652,18 @@ def decode_message(data: bytes) -> dict[str, Any]:
         raise ValueError(f"Unsupported protocol version: {version}")
 
     flags = data[5]
-    compression = CompressionType(flags & 0x03)  # Bottom 2 bits = compression
+    compression = CompressionType(flags & 0x03)
 
     length = int.from_bytes(data[6:10], "little")
-    if length > MAX_MESSAGE_SIZE:
-        raise ValueError(f"Message too large: {length} bytes")
+    max_size = get_max_message_size()
+    if length > max_size:
+        raise ValueError(f"Message too large: {length} bytes (max: {max_size})")
 
     payload = data[10 : 10 + length]
 
-    # Decompress if needed
     if compression != CompressionType.NONE:
         payload = decompress_data(payload, compression)
 
-    # strict_map_key=False allows bytes keys (not needed but safe)
-    # raw=False decodes str msgpack types as Python str, but keeps bin types as bytes
-    # unicode_errors='surrogateescape' handles invalid UTF-8 in str fields gracefully
-    # This properly handles binary body fields while keeping string fields as str
     try:
         return msgpack.unpackb(
             payload,
@@ -763,11 +672,9 @@ def decode_message(data: bytes) -> dict[str, Any]:
             unicode_errors="surrogateescape",
         )
     except Exception as e:
-        # If surrogateescape still fails, try raw mode to preserve all bytes
         try:
             return msgpack.unpackb(payload, raw=True, strict_map_key=False)
         except Exception:
-            # Re-raise the original error with more context
             raise ValueError(
                 f"Failed to decode msgpack payload (compression={compression.name}, "
                 f"payload_len={len(payload)}): {e}"
@@ -785,20 +692,8 @@ def parse_message(data: bytes) -> BaseModel:
     return MESSAGE_TYPES[msg_type].model_validate(raw)
 
 
-# ==============================================================================
-# Streaming Utilities
-# ==============================================================================
-
-
 class ChunkAssembler:
     """Assembles chunked data streams with TTL-based cleanup to prevent memory leaks."""
-
-    # Maximum age for incomplete streams (5 minutes)
-    MAX_STREAM_AGE_SECONDS: float = 300.0
-    # Maximum size per stream (1GB to support large file uploads)
-    MAX_STREAM_SIZE: int = 1024 * 1024 * 1024
-    # Maximum number of concurrent streams
-    MAX_CONCURRENT_STREAMS: int = 1000
 
     def __init__(self) -> None:
         import time
@@ -809,13 +704,29 @@ class ChunkAssembler:
         self._stream_created: dict[UUID, float] = {}
         self._time = time
 
+    def _get_max_stream_age(self) -> float:
+        """Get max stream age from config."""
+        from instanton.core.config import get_config
+        return get_config().resources.chunk_stream_ttl
+
+    def _get_max_stream_size(self) -> int:
+        """Get max stream size from config."""
+        from instanton.core.config import get_config
+        return get_config().performance.http_max_body_size
+
+    def _get_max_concurrent_streams(self) -> int:
+        """Get max concurrent streams from config."""
+        from instanton.core.config import get_config
+        return get_config().resources.max_concurrent_streams
+
     def _cleanup_expired_streams(self) -> None:
         """Remove streams that have exceeded the maximum age."""
         now = self._time.monotonic()
+        max_age = self._get_max_stream_age()
         expired = [
             stream_id
             for stream_id, created_at in self._stream_created.items()
-            if now - created_at > self.MAX_STREAM_AGE_SECONDS
+            if now - created_at > max_age
         ]
         for stream_id in expired:
             self.streams.pop(stream_id, None)
@@ -825,12 +736,11 @@ class ChunkAssembler:
 
     def start_stream(self, start_msg: ChunkStart) -> None:
         """Register a new stream."""
-        # Cleanup expired streams first
         self._cleanup_expired_streams()
 
-        # Check concurrent stream limit
-        if len(self.streams) >= self.MAX_CONCURRENT_STREAMS:
-            raise ValueError("Too many concurrent streams")
+        max_streams = self._get_max_concurrent_streams()
+        if len(self.streams) >= max_streams:
+            raise ValueError(f"Too many concurrent streams (max: {max_streams})")
 
         self.streams[start_msg.stream_id] = []
         self.metadata[start_msg.stream_id] = start_msg
@@ -842,12 +752,11 @@ class ChunkAssembler:
         if chunk.stream_id not in self.streams:
             raise ValueError(f"Unknown stream: {chunk.stream_id}")
 
-        # Check size limit
+        max_size = self._get_max_stream_size()
         new_size = self._stream_sizes[chunk.stream_id] + len(chunk.data)
-        if new_size > self.MAX_STREAM_SIZE:
-            # Clean up the stream to prevent further memory usage
+        if new_size > max_size:
             self.abort_stream(chunk.stream_id)
-            raise ValueError(f"Stream {chunk.stream_id} exceeds maximum size")
+            raise ValueError(f"Stream {chunk.stream_id} exceeds maximum size ({max_size} bytes)")
 
         self.streams[chunk.stream_id].append((chunk.sequence, chunk.data))
         self._stream_sizes[chunk.stream_id] = new_size
@@ -863,7 +772,6 @@ class ChunkAssembler:
         self._stream_sizes.pop(end_msg.stream_id, None)
         self._stream_created.pop(end_msg.stream_id, None)
 
-        # Sort by sequence and concatenate
         chunks.sort(key=lambda x: x[0])
         return b"".join(data for _, data in chunks)
 
@@ -898,19 +806,7 @@ def create_chunks(
     status: int = 200,
     headers: dict[str, str] | None = None,
 ) -> tuple[ChunkStart, list[ChunkData], ChunkEnd]:
-    """Split data into chunks for streaming transfer.
-
-    Args:
-        data: The data to split into chunks
-        request_id: The request ID this response is for
-        chunk_size: Size of each chunk in bytes
-        content_type: Content-Type header value
-        status: HTTP status code (default 200)
-        headers: HTTP response headers
-
-    Returns:
-        Tuple of (ChunkStart, list of ChunkData, ChunkEnd)
-    """
+    """Split data into chunks for streaming transfer."""
     import hashlib
 
     stream_id = uuid4()
@@ -937,7 +833,6 @@ def create_chunks(
             )
         )
 
-    # Ensure at least one chunk exists
     if not chunks:
         chunks.append(
             ChunkData(
@@ -958,11 +853,6 @@ def create_chunks(
     return start, chunks, end
 
 
-# ==============================================================================
-# Protocol Negotiation Utilities
-# ==============================================================================
-
-
 class ProtocolNegotiator:
     """Handles protocol feature negotiation between client and server."""
 
@@ -981,7 +871,6 @@ class ProtocolNegotiator:
         self.supports_streaming = supports_streaming
         self.max_chunk_size = max_chunk_size
 
-        # Negotiated values (set after negotiation)
         self.negotiated_compression: CompressionType = CompressionType.NONE
         self.streaming_enabled: bool = False
         self.chunk_size: int = CHUNK_SIZE
@@ -997,14 +886,12 @@ class ProtocolNegotiator:
 
     def handle_request(self, request: NegotiateRequest) -> NegotiateResponse:
         """Handle a negotiation request on server side."""
-        # Check version compatibility
         if request.client_version > PROTOCOL_VERSION:
             return NegotiateResponse(
                 success=False,
                 error=f"Client version {request.client_version} not supported",
             )
 
-        # Select best compression (prefer BROTLI > ZSTD > LZ4 > NONE for web content)
         client_compressions = set(request.supported_compressions)
         server_compressions = {int(c) for c in self.supported_compressions}
         common = client_compressions & server_compressions
@@ -1023,13 +910,9 @@ class ProtocolNegotiator:
                 error="No common compression algorithm",
             )
 
-        # Negotiate streaming
         streaming = self.supports_streaming and request.supports_streaming
-
-        # Negotiate chunk size (use smaller of the two)
         chunk_size = min(self.max_chunk_size, request.max_chunk_size)
 
-        # Store negotiated values
         self.negotiated_compression = selected
         self.streaming_enabled = streaming
         self.chunk_size = chunk_size

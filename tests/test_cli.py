@@ -18,7 +18,6 @@ class TestCLIBasics:
         result = runner.invoke(main)
 
         assert result.exit_code == 0
-        # Check for key content - banner uses Unicode box drawing
         assert "Tunnel through barriers, instantly" in result.output
         assert "Usage:" in result.output
         assert "instanton --port 8000" in result.output
@@ -39,7 +38,6 @@ class TestCLIBasics:
         result = runner.invoke(main, ["version"])
 
         assert result.exit_code == 0
-        # Check for key content - banner uses Unicode box drawing
         assert "Tunnel through barriers, instantly" in result.output
         assert "Version:" in result.output
         assert "Python:" in result.output
@@ -65,7 +63,6 @@ class TestStatusCommand:
 
             result = runner.invoke(main, ["status", "--json"])
 
-            # Should output JSON
             assert "healthy" in result.output or "unknown" in result.output
 
     def test_status_handles_connection_error(self):
@@ -103,8 +100,6 @@ class TestTcpCommand:
         runner = CliRunner()
         result = runner.invoke(main, ["tcp", "22"])
 
-        # TCP tunnel is now implemented, it will try to connect
-        # and fail without a server, but the command runs
         assert "TCP tunnel" in result.output or "localhost:22" in result.output
 
     def test_tcp_command_with_remote_port(self):
@@ -112,7 +107,6 @@ class TestTcpCommand:
         runner = CliRunner()
         result = runner.invoke(main, ["tcp", "5432", "--remote-port", "5432"])
 
-        # The command runs and shows the port
         assert "5432" in result.output
 
 
@@ -146,10 +140,8 @@ class TestTunnelStart:
             patch.object(sdk, "_suggest_subdomain", return_value="my-project"),
             patch("instanton.cli._run_tunnel_with_signal_handling") as mock_run,
         ):
-            # This won't actually run the tunnel, just test CLI parsing
             runner.invoke(main, ["--port", "8000"])
 
-            # The command should process correctly
             mock_run.assert_called_once()
 
 
@@ -161,7 +153,6 @@ class TestCLIOptions:
         runner = CliRunner()
         result = runner.invoke(main, ["--help"])
 
-        # Check all options are documented
         options = [
             "--port",
             "--subdomain",
@@ -181,7 +172,6 @@ class TestCLIOptions:
         runner = CliRunner()
         result = runner.invoke(main, ["--help"])
 
-        # Check that auth-token option is in help
         assert "--auth-token" in result.output
 
 
@@ -195,7 +185,6 @@ class TestSubcommands:
 
         subcommands = ["status", "version", "http", "tcp", "domain"]
         for cmd in subcommands:
-            # Commands should be listed in help
             is_in_help = cmd in result.output.lower()
             cmd_works = runner.invoke(main, [cmd, "--help"]).exit_code == 0
             assert is_in_help or cmd_works
@@ -296,7 +285,6 @@ class TestDomainCommands:
             storage_path = f.name
 
         try:
-            # Add a domain first
             runner.invoke(
                 main,
                 [
@@ -310,7 +298,6 @@ class TestDomainCommands:
                 ],
             )
 
-            # List domains
             result = runner.invoke(main, ["domain", "list", "--storage", storage_path])
 
             assert result.exit_code == 0
@@ -332,7 +319,6 @@ class TestDomainCommands:
             storage_path = f.name
 
         try:
-            # Add a domain first
             runner.invoke(
                 main,
                 [
@@ -346,13 +332,11 @@ class TestDomainCommands:
                 ],
             )
 
-            # List domains as JSON
             result = runner.invoke(
                 main, ["domain", "list", "--storage", storage_path, "--json"]
             )
 
             assert result.exit_code == 0
-            # Should be valid JSON
             data = json.loads(result.output)
             assert len(data) == 1
             assert data[0]["domain"] == "api.example.com"
@@ -392,7 +376,6 @@ class TestDomainCommands:
             storage_path = f.name
 
         try:
-            # Add a domain first
             runner.invoke(
                 main,
                 [
@@ -406,7 +389,6 @@ class TestDomainCommands:
                 ],
             )
 
-            # Get status
             result = runner.invoke(
                 main, ["domain", "status", "api.example.com", "--storage", storage_path]
             )
@@ -430,7 +412,6 @@ class TestDomainCommands:
             storage_path = f.name
 
         try:
-            # Add a domain first
             runner.invoke(
                 main,
                 [
@@ -444,7 +425,6 @@ class TestDomainCommands:
                 ],
             )
 
-            # Remove domain
             result = runner.invoke(
                 main,
                 ["domain", "remove", "api.example.com", "--storage", storage_path, "--yes"],
@@ -453,7 +433,6 @@ class TestDomainCommands:
             assert result.exit_code == 0
             assert "Domain removed" in result.output
 
-            # Verify domain is gone
             result = runner.invoke(main, ["domain", "list", "--storage", storage_path])
             assert "No domains registered" in result.output
         finally:

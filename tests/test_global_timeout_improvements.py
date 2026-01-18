@@ -20,24 +20,20 @@ class TestWebSocketGlobalTimeouts:
     def test_connect_timeout_increased_for_global_users(self):
         """Verify connect_timeout is 30s for high-latency international connections."""
         transport = WebSocketTransport()
-        # 30s allows for users with 200-500ms latency in Asia, Africa, South America
         assert transport._connect_timeout == 30.0
 
     def test_ping_timeout_increased_for_network_jitter(self):
         """Verify ping_timeout is 15s for better tolerance of network jitter."""
         transport = WebSocketTransport()
-        # 15s provides tolerance for transient network issues
         assert transport._ping_timeout == 15.0
 
     def test_max_reconnect_attempts_increased_for_resilience(self):
         """Verify max_reconnect_attempts is 15 for better resilience."""
         transport = WebSocketTransport()
-        # 15 attempts allows recovery from longer outages
         assert transport._max_reconnect_attempts == 15
 
     def test_timeout_values_can_be_overridden(self):
         """Verify that default timeouts can be customized for specific needs."""
-        # For very high latency (satellite, remote areas)
         transport = WebSocketTransport(
             connect_timeout=60.0,
             ping_timeout=30.0,
@@ -65,7 +61,6 @@ class TestQuicGlobalTimeouts:
     def test_idle_timeout_increased_for_global_users(self):
         """Verify idle_timeout is 60s for global users."""
         config = QuicTransportConfig()
-        # 60s idle timeout prevents premature disconnections
         assert config.idle_timeout == 60.0
 
     def test_connection_timeout_increased(self):
@@ -125,7 +120,6 @@ class TestReconnectConfigGlobalOptimizations:
     def test_jitter_increased(self):
         """Verify jitter is 0.2 to reduce reconnection storms."""
         config = ReconnectConfig()
-        # Higher jitter prevents many clients reconnecting simultaneously
         assert config.jitter == 0.2
 
     def test_base_delay_appropriate(self):
@@ -170,19 +164,16 @@ class TestTimeoutScenarios:
 
     def test_asia_pacific_high_latency(self):
         """Test configuration suitable for Asia-Pacific users with high latency."""
-        # Users in Asia-Pacific might have 200-400ms latency to US/EU servers
         config = ClientConfig(
-            connect_timeout=30.0,  # Default is sufficient
+            connect_timeout=30.0,
             idle_timeout=300.0,
         )
-        # 30s connect timeout handles 200-400ms latency well
         assert config.connect_timeout >= 20.0
 
     def test_satellite_internet(self):
         """Test configuration for satellite internet users."""
-        # Satellite internet can have 500-700ms latency
         config = ClientConfig(
-            connect_timeout=60.0,  # Need longer for satellite
+            connect_timeout=60.0,
             idle_timeout=600.0,
         )
         assert config.connect_timeout == 60.0
@@ -190,20 +181,18 @@ class TestTimeoutScenarios:
 
     def test_mobile_network_users(self):
         """Test configuration for mobile network users."""
-        # Mobile networks can be unstable
         reconnect = ReconnectConfig(
-            max_attempts=20,  # More attempts for unstable connections
-            jitter=0.3,  # Higher jitter for mobile
+            max_attempts=20,
+            jitter=0.3,
         )
         assert reconnect.max_attempts == 20
         assert reconnect.jitter == 0.3
 
     def test_corporate_network_with_proxy(self):
         """Test configuration for corporate networks with proxy."""
-        # Corporate proxies can add latency
         config = ClientConfig(
             connect_timeout=45.0,
-            keepalive_interval=20.0,  # More frequent keepalives
+            keepalive_interval=20.0,
         )
         assert config.connect_timeout == 45.0
         assert config.keepalive_interval == 20.0
@@ -216,16 +205,13 @@ class TestTimeoutDefaults:
         """Document all WebSocketTransport default timeout values."""
         transport = WebSocketTransport()
 
-        # Connection settings
         assert transport._connect_timeout == 30.0
         assert transport._auto_reconnect is True
 
-        # Reconnection settings
         assert transport._max_reconnect_attempts == 15
         assert transport._reconnect_delay == 1.0
         assert transport._max_reconnect_delay == 60.0
 
-        # Heartbeat settings
         assert transport._ping_interval == 30.0
         assert transport._ping_timeout == 15.0
 
@@ -233,12 +219,10 @@ class TestTimeoutDefaults:
         """Document all QuicTransportConfig default timeout values."""
         config = QuicTransportConfig()
 
-        # Connection settings
         assert config.connection_timeout == 30.0
         assert config.idle_timeout == 60.0
         assert config.auto_reconnect is True
 
-        # Reconnection settings
         assert config.max_reconnect_attempts == 15
         assert config.reconnect_delay == 1.0
         assert config.max_reconnect_delay == 60.0
@@ -279,8 +263,8 @@ class TestTimeoutBoundaries:
     def test_maximum_practical_timeouts(self):
         """Test maximum practical timeout values."""
         config = ClientConfig(
-            connect_timeout=120.0,  # 2 minutes
-            idle_timeout=3600.0,  # 1 hour
+            connect_timeout=120.0,
+            idle_timeout=3600.0,
         )
         assert config.connect_timeout == 120.0
         assert config.idle_timeout == 3600.0
@@ -291,14 +275,12 @@ class TestTimeoutBoundaries:
             connect_timeout=0.0,
             idle_timeout=0.0,
         )
-        # Zero should be allowed (means no timeout in some contexts)
         assert config.connect_timeout == 0.0
         assert config.idle_timeout == 0.0
 
     def test_negative_timeout_handling(self):
         """Test that negative timeouts are accepted (validation is caller's job)."""
         config = ClientConfig(connect_timeout=-1.0)
-        # Pydantic allows negative floats, validation is runtime responsibility
         assert config.connect_timeout == -1.0
 
 
@@ -311,7 +293,6 @@ class TestTransportCreation:
         client = TunnelClient(local_port=8000)
         transport = await client._create_transport()
 
-        # Check that transport is created with correct settings
         assert isinstance(transport, WebSocketTransport)
         assert transport._connect_timeout == 30.0
         assert transport._ping_interval == 30.0

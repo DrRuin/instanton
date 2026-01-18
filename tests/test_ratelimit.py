@@ -30,12 +30,10 @@ class TestSlidingWindowCounter:
         """Test that requests are denied after limit exceeded."""
         counter = SlidingWindowCounter(limit=3, window_seconds=1.0)
 
-        # Use up the limit
         for _ in range(3):
             allowed, _, _ = counter.allow()
             assert allowed is True
 
-        # Next request should be denied
         allowed, remaining, _ = counter.allow()
         assert allowed is False
         assert remaining == 0
@@ -44,20 +42,16 @@ class TestSlidingWindowCounter:
         """Test that counters rotate after window expires."""
         counter = SlidingWindowCounter(limit=3, window_seconds=0.1)
 
-        # Use up the limit
         for _ in range(3):
             counter.allow()
 
-        # Should be denied
         allowed, _, _ = counter.allow()
         assert allowed is False
 
-        # Wait for window to expire
         import time
 
         time.sleep(0.15)
 
-        # Should be allowed again
         allowed, _, _ = counter.allow()
         assert allowed is True
 
@@ -76,20 +70,16 @@ class TestSlidingWindowCounter:
 
         counter = SlidingWindowCounter(limit=10, window_seconds=0.1)
 
-        # Fill up current window
         for _ in range(10):
             counter.allow()
 
-        # Should be denied
         allowed, _, _ = counter.allow()
         assert allowed is False
 
-        # Wait for two full windows to pass (counters reset completely)
         time.sleep(0.25)
 
-        # Now should be fully available again
         remaining, _ = counter.peek()
-        assert remaining == 10  # Full limit available after reset
+        assert remaining == 10
 
 
 class TestRateLimiter:
@@ -108,12 +98,10 @@ class TestRateLimiter:
         """Test that different keys have independent limits."""
         limiter = create_rate_limiter(requests_per_second=2.0, burst_size=2)
 
-        # Use up limit for key1
         await limiter.allow("key1")
         await limiter.allow("key1")
         result1 = await limiter.allow("key1")
 
-        # key2 should still be allowed
         result2 = await limiter.allow("key2")
 
         assert result1.allowed is False
@@ -136,7 +124,6 @@ class TestRateLimiter:
         """Test check doesn't increment counter."""
         limiter = create_rate_limiter(requests_per_second=2.0, burst_size=2)
 
-        # Check should not affect limit
         result1 = await limiter.check("test-key")
         result2 = await limiter.check("test-key")
 
@@ -147,16 +134,13 @@ class TestRateLimiter:
         """Test reset clears counter for key."""
         limiter = create_rate_limiter(requests_per_second=2.0, burst_size=2)
 
-        # Use up limit
         await limiter.allow("test-key")
         await limiter.allow("test-key")
         result1 = await limiter.allow("test-key")
         assert result1.allowed is False
 
-        # Reset
         await limiter.reset("test-key")
 
-        # Should be allowed again
         result2 = await limiter.allow("test-key")
         assert result2.allowed is True
 
@@ -165,12 +149,10 @@ class TestRateLimiter:
         """Test reset with no key clears all."""
         limiter = create_rate_limiter(requests_per_second=10.0)
 
-        # Add some entries
         await limiter.allow("key1")
         await limiter.allow("key2")
         assert limiter.entry_count > 0
 
-        # Reset all
         await limiter.reset()
 
         assert limiter.entry_count == 0
@@ -183,11 +165,9 @@ class TestRateLimiter:
             max_entries=3,
         )
 
-        # Add entries beyond limit
         for i in range(5):
             await limiter.allow(f"key{i}")
 
-        # Should have evicted oldest
         assert limiter.entry_count <= 3
 
     @pytest.mark.asyncio
@@ -198,12 +178,10 @@ class TestRateLimiter:
         async def make_request(key: str):
             return await limiter.allow(key)
 
-        # Make concurrent requests
         results = await asyncio.gather(
             *[make_request("concurrent-key") for _ in range(10)]
         )
 
-        # All should be processed without error
         assert len(results) == 10
         assert all(isinstance(r, RateLimitResult) for r in results)
 
@@ -212,12 +190,10 @@ class TestRateLimiter:
         """Test different scopes have independent limits."""
         limiter = create_rate_limiter(requests_per_second=2.0, burst_size=2)
 
-        # Use up IP scope
         await limiter.allow("test", scope="ip")
         await limiter.allow("test", scope="ip")
         result_ip = await limiter.allow("test", scope="ip")
 
-        # Subdomain scope should be independent
         result_subdomain = await limiter.allow("test", scope="subdomain")
 
         assert result_ip.allowed is False

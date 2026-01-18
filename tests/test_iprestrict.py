@@ -63,11 +63,11 @@ class TestIPRestrictor:
         """Test that deny rules take precedence over allow."""
         restrictor = IPRestrictor(
             allow=["10.0.0.0/8"],
-            deny=["10.0.0.100"],  # Deny specific IP in allowed range
+            deny=["10.0.0.100"],
             default_policy=IPPolicy.DENY,
         )
         assert restrictor.is_allowed("10.0.0.1") is True
-        assert restrictor.is_allowed("10.0.0.100") is False  # Deny takes precedence
+        assert restrictor.is_allowed("10.0.0.100") is False
         assert restrictor.is_allowed("10.0.0.101") is True
 
     def test_ipv6_support(self):
@@ -169,8 +169,8 @@ class TestIPRestrictor:
     def test_rule_count(self):
         """Test rule count property."""
         restrictor = IPRestrictor(
-            allow=["10.0.0.0/8", "192.168.1.1"],  # 1 network + 1 exact
-            deny=["172.16.0.0/12"],  # 1 network
+            allow=["10.0.0.0/8", "192.168.1.1"],
+            deny=["172.16.0.0/12"],
         )
         assert restrictor.rule_count == 3
 
@@ -189,7 +189,6 @@ class TestIPRestrictor:
             allow=["", "   ", "10.0.0.1"],
             default_policy=IPPolicy.DENY,
         )
-        # Should not raise and should work with valid rule
         assert restrictor.is_allowed("10.0.0.1") is True
         assert restrictor.rule_count == 1
 
@@ -199,7 +198,6 @@ class TestIPRestrictor:
             allow=["invalid-cidr", "10.0.0.1"],
             default_policy=IPPolicy.DENY,
         )
-        # Should work with valid rule
         assert restrictor.is_allowed("10.0.0.1") is True
 
 

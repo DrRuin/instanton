@@ -15,8 +15,9 @@ from uuid import UUID
 
 import httpx
 import structlog
+from rich.console import Console
 
-from instanton.core.config import ClientConfig
+from instanton.core.config import ClientConfig, get_config
 from instanton.core.exceptions import (
     ConnectionRefusedError,
     ConnectionTimeoutError,
@@ -31,7 +32,6 @@ from instanton.core.exceptions import (
 )
 from instanton.core.transport import QuicTransport, Transport, WebSocketTransport
 from instanton.protocol.messages import (
-    CHUNK_SIZE,
     ChunkAssembler,
     ChunkData,
     ChunkEnd,
@@ -62,6 +62,7 @@ from instanton.protocol.messages import (
 )
 
 logger = structlog.get_logger()
+console = Console()
 
 
 class ConnectionState(Enum):
@@ -75,19 +76,49 @@ class ConnectionState(Enum):
     CLOSED = "closed"
 
 
+def _get_reconnect_config():
+    """Get reconnect config defaults from global config."""
+    return get_config().reconnect
+
+
 @dataclass
 class ReconnectConfig:
     """Configuration for reconnection behavior.
 
     Optimized defaults for global users connecting from different countries
-    with varying network conditions and latency.
+    with varying network conditions and latency. Defaults are loaded from
+    environment variables via the global config.
     """
 
-    enabled: bool = True
-    max_attempts: int = 15  # Increased for resilience
-    base_delay: float = 1.0
-    max_delay: float = 60.0
-    jitter: float = 0.2  # Increased jitter to reduce reconnection storms
+    enabled: bool | None = None
+    max_attempts: int | None = None
+    base_delay: float | None = None
+    max_delay: float | None = None
+    jitter: float | None = None
+
+    def __post_init__(self):
+        """Apply defaults from global config if not explicitly set."""
+        cfg = _get_reconnect_config()
+        if self.enabled is None:
+            self.enabled = cfg.auto_reconnect
+        if self.max_attempts is None:
+            self.max_attempts = cfg.max_attempts
+        if self.base_delay is None:
+            self.base_delay = cfg.base_delay
+        if self.max_delay is None:
+            self.max_delay = cfg.max_delay
+        if self.jitter is None:
+            self.jitter = cfg.jitter
+
+
+def _get_timeout_config():
+    """Get timeout config defaults from global config."""
+    return get_config().timeouts
+
+
+def _get_resource_config():
+    """Get resource config defaults from global config."""
+    return get_config().resources
 
 
 @dataclass
@@ -106,17 +137,33 @@ class ProxyConfig:
         retry_on_status: HTTP status codes to retry on.
         stream_timeout: Timeout for streaming connections.
             Set to None for indefinite streaming (real-time APIs).
+
+    Defaults are loaded from environment variables via the global config.
     """
 
-    connect_timeout: float = 5.0
-    read_timeout: float | None = None  # None = no timeout (indefinite)
-    write_timeout: float = 5.0
+    connect_timeout: float | None = None
+    read_timeout: float | None = None
+    write_timeout: float | None = None
     pool_timeout: float = 5.0
-    max_connections: int = 100
-    max_keepalive: int = 20
+    max_connections: int | None = None
+    max_keepalive: int | None = None
     retry_count: int = 2
     retry_on_status: tuple[int, ...] = (502, 503, 504)
-    stream_timeout: float | None = None  # None = indefinite streaming
+    stream_timeout: float | None = None
+
+    def __post_init__(self):
+        """Apply defaults from global config if not explicitly set."""
+        timeouts = _get_timeout_config()
+        resources = _get_resource_config()
+
+        if self.connect_timeout is None:
+            self.connect_timeout = timeouts.connect_timeout
+        if self.write_timeout is None:
+            self.write_timeout = timeouts.write_timeout
+        if self.max_connections is None:
+            self.max_connections = resources.max_connections
+        if self.max_keepalive is None:
+            self.max_keepalive = resources.max_keepalive
 
 
 class TunnelClient:
@@ -151,7 +198,6 @@ class TunnelClient:
             reconnect_config: Reconnection behavior configuration
             proxy_config: Request proxying configuration
         """
-        # Use config if provided, otherwise use individual params
         if config:
             self.local_port = config.local_port
             self.server_addr = config.server_addr
@@ -164,13 +210,13 @@ class TunnelClient:
             self.server_addr = server_addr
             self.subdomain = subdomain
             self.use_quic = use_quic
-            self._keepalive_interval = 30.0
-            self._connect_timeout = 30.0  # Default 30s for global users
+            timeouts = _get_timeout_config()
+            self._keepalive_interval = timeouts.ping_interval
+            self._connect_timeout = timeouts.connect_timeout
 
         self.reconnect_config = reconnect_config or ReconnectConfig()
         self.proxy_config = proxy_config or ProxyConfig()
 
-        # Connection state
         self._state = ConnectionState.DISCONNECTED
         self._transport: Transport | None = None
         self._tunnel_id: UUID | None = None
@@ -179,28 +225,21 @@ class TunnelClient:
         self._running = False
         self._reconnect_attempt = 0
 
-        # Protocol negotiation
         self._negotiator = ProtocolNegotiator()
         self._compression: CompressionType = CompressionType.NONE
         self._streaming_enabled = False
-        self._chunk_size = CHUNK_SIZE
+        self._chunk_size = get_config().performance.chunk_size
 
-        # HTTP client for proxying
         self._http_client: httpx.AsyncClient | None = None
 
-        # Streaming support
         self._chunk_assembler = ChunkAssembler()
 
-        # Active WebSocket proxy connections (tunnel_id -> local WebSocket client)
         self._ws_connections: dict[UUID, Any] = {}
 
-        # Active gRPC stream connections (stream_id -> (channel, stream))
         self._grpc_streams: dict[UUID, tuple[Any, Any]] = {}
 
-        # State change hooks
         self._state_hooks: list[Callable[[ConnectionState], None]] = []
 
-        # Metrics
         self._connect_time: float | None = None
         self._requests_proxied = 0
         self._bytes_sent = 0
@@ -281,9 +320,9 @@ class TunnelClient:
             max_reconnect_attempts=self.reconnect_config.max_attempts,
             reconnect_delay=self.reconnect_config.base_delay,
             max_reconnect_delay=self.reconnect_config.max_delay,
-            connect_timeout=self._connect_timeout,  # Use client's connect timeout
+            connect_timeout=self._connect_timeout,
             ping_interval=self._keepalive_interval,
-            ping_timeout=min(self._connect_timeout / 2, 20.0),  # Half of connect timeout, max 20s
+            ping_timeout=min(self._connect_timeout / 2, 20.0),
         )
 
     async def _create_http_client(self) -> httpx.AsyncClient:
@@ -291,10 +330,9 @@ class TunnelClient:
 
         Supports indefinite timeouts (None) for long-running APIs and streaming.
         """
-        # httpx uses None for no timeout (indefinite wait)
         timeout = httpx.Timeout(
             connect=self.proxy_config.connect_timeout,
-            read=self.proxy_config.read_timeout,  # None = indefinite
+            read=self.proxy_config.read_timeout,
             write=self.proxy_config.write_timeout,
             pool=self.proxy_config.pool_timeout,
         )
@@ -302,11 +340,6 @@ class TunnelClient:
             max_connections=self.proxy_config.max_connections,
             max_keepalive_connections=self.proxy_config.max_keepalive,
         )
-        # IMPORTANT: Do NOT follow redirects internally!
-        # Redirects must be returned to the browser so it can:
-        # 1. Process Set-Cookie headers from the redirect response
-        # 2. Follow the redirect itself with the correct cookies
-        # This is critical for login flows (POST -> 302 -> GET with session cookie)
         return httpx.AsyncClient(
             timeout=timeout,
             limits=limits,
@@ -330,22 +363,18 @@ class TunnelClient:
         start_time = time.monotonic()
 
         try:
-            # Create transport
             self._transport = await self._create_transport()
             await self._transport.connect(self.server_addr)
 
-            # Negotiate protocol features
             self._set_state(ConnectionState.NEGOTIATING)
             await self._negotiate_protocol()
 
-            # Send connect request
             request = ConnectRequest(
                 subdomain=self.subdomain,
                 local_port=self.local_port,
             )
             await self._send_message(request)
 
-            # Wait for response
             data = await self._transport.recv()
             if not data:
                 raise ServerUnavailableError(self.server_addr)
@@ -354,7 +383,6 @@ class TunnelClient:
             response = ConnectResponse(**msg)
 
             if response.type == "error":
-                # Map server error codes to specific exceptions
                 error_msg = response.error or "Unknown error"
                 error_lower = error_msg.lower()
                 if "subdomain" in error_lower and "taken" in error_lower:
@@ -374,14 +402,13 @@ class TunnelClient:
             self._connect_time = time.monotonic() - start_time
             self._reconnect_attempt = 0
 
-            logger.info(
+            logger.debug(
                 "Tunnel established",
                 tunnel_id=str(self._tunnel_id),
                 url=self._url,
                 connect_time_ms=int(self._connect_time * 1000),
             )
 
-            # Create HTTP client for proxying
             self._http_client = await self._create_http_client()
 
             self._set_state(ConnectionState.CONNECTED)
@@ -397,7 +424,6 @@ class TunnelClient:
             TunnelCreationError,
             ServerUnavailableError,
         ):
-            # Re-raise our custom exceptions
             self._set_state(ConnectionState.DISCONNECTED)
             raise
         except TimeoutError:
@@ -422,11 +448,9 @@ class TunnelClient:
         if not self._transport:
             return
 
-        # Send negotiation request
         request = self._negotiator.create_request()
         await self._send_message(request)
 
-        # Wait for response
         data = await self._transport.recv()
         if not data:
             logger.warning("No negotiation response, using defaults")
@@ -434,7 +458,6 @@ class TunnelClient:
 
         msg = decode_message(data)
         if msg.get("type") != "negotiate_response":
-            # Server doesn't support negotiation, continue with defaults
             logger.debug("Server doesn't support negotiation")
             return
 
@@ -443,7 +466,7 @@ class TunnelClient:
             self._compression = self._negotiator.negotiated_compression
             self._streaming_enabled = self._negotiator.streaming_enabled
             self._chunk_size = self._negotiator.chunk_size
-            logger.info(
+            logger.debug(
                 "Protocol negotiated",
                 compression=self._compression.name,
                 streaming=self._streaming_enabled,
@@ -472,18 +495,15 @@ class TunnelClient:
                     ConnectionState.DISCONNECTED,
                     ConnectionState.RECONNECTING,
                 ):
-                    # Only reconnect if still running (not cancelled)
                     if self._running and self.reconnect_config.enabled:
                         await self._attempt_reconnect()
                     else:
                         break
                 elif self._state == ConnectionState.CLOSED:
-                    # Already closed, exit the loop
                     break
                 else:
                     await asyncio.sleep(0.1)
             except asyncio.CancelledError:
-                # Shutdown requested - mark as not running and exit
                 self._running = False
                 break
             except Exception as e:
@@ -505,10 +525,9 @@ class TunnelClient:
                 self._bytes_received += len(data)
                 await self._handle_message(data)
         except asyncio.CancelledError:
-            # Shutdown was requested via Ctrl+C
             was_cancelled = True
             self._running = False
-            raise  # Re-raise to propagate to run() method
+            raise
         except Exception as e:
             logger.error("Error in message loop", error=str(e))
         finally:
@@ -516,7 +535,6 @@ class TunnelClient:
             with contextlib.suppress(asyncio.CancelledError):
                 await keepalive_task
 
-        # Connection lost - prepare for reconnect only if not cancelled
         if not was_cancelled and self._running and self.reconnect_config.enabled:
             self._set_state(ConnectionState.RECONNECTING)
         elif not was_cancelled:
@@ -535,7 +553,6 @@ class TunnelClient:
         self._reconnect_attempt += 1
         self._set_state(ConnectionState.RECONNECTING)
 
-        # Calculate delay with exponential backoff and jitter
         delay = min(
             self.reconnect_config.base_delay * (2 ** (self._reconnect_attempt - 1)),
             self.reconnect_config.max_delay,
@@ -543,22 +560,15 @@ class TunnelClient:
         jitter = delay * self.reconnect_config.jitter * random.random()
         delay += jitter
 
-        logger.info(
-            "Reconnecting",
-            attempt=self._reconnect_attempt,
-            max_attempts=self.reconnect_config.max_attempts,
-            delay_sec=round(delay, 2),
-        )
+        console.print(f"[yellow]Reconnecting... (attempt {self._reconnect_attempt})[/yellow]")
 
         await asyncio.sleep(delay)
 
-        # Clean up old transport
         if self._transport:
             with contextlib.suppress(Exception):
                 await self._transport.close()
             self._transport = None
 
-        # Clean up old HTTP client
         if self._http_client:
             with contextlib.suppress(Exception):
                 await self._http_client.aclose()
@@ -603,36 +613,29 @@ class TunnelClient:
         elif msg_type == "chunk_end":
             chunk_end = ChunkEnd(**msg)
             assembled = self._chunk_assembler.end_stream(chunk_end)
-            # Handle assembled data (would typically be processed as a request)
             logger.debug("Assembled chunk", size=len(assembled))
         elif msg_type == "websocket_upgrade":
-            # WebSocket upgrade request - connect to local WebSocket server
             ws_upgrade = WebSocketUpgrade(**msg)
             asyncio.create_task(self._handle_websocket_upgrade(ws_upgrade))
         elif msg_type == "websocket_frame":
-            # WebSocket frame from relay - forward to local WebSocket
             frame = WebSocketFrame(**msg)
             ws = self._ws_connections.get(frame.tunnel_id)
             if ws:
                 asyncio.create_task(self._forward_ws_frame_to_local(ws, frame))
         elif msg_type == "websocket_close":
-            # WebSocket close from relay - close local connection
             close_msg = WebSocketClose(**msg)
             ws = self._ws_connections.pop(close_msg.tunnel_id, None)
             if ws:
                 asyncio.create_task(self._close_local_websocket(ws, close_msg))
         elif msg_type == "grpc_stream_open":
-            # gRPC stream open request - connect to local gRPC server
             grpc_open = GrpcStreamOpen(**msg)
             asyncio.create_task(self._handle_grpc_stream_open(grpc_open))
         elif msg_type == "grpc_frame":
-            # gRPC frame from relay - forward to local gRPC stream
             frame = GrpcFrame(**msg)
             stream_data = self._grpc_streams.get(frame.stream_id)
             if stream_data:
                 asyncio.create_task(self._forward_grpc_frame_to_local(stream_data[1], frame))
         elif msg_type == "grpc_stream_close":
-            # gRPC stream close - close local stream
             grpc_close = GrpcStreamClose(**msg)
             stream_data = self._grpc_streams.pop(grpc_close.stream_id, None)
             if stream_data:
@@ -651,23 +654,12 @@ class TunnelClient:
 
         url = f"http://localhost:{self.local_port}{request.path}"
 
-        logger.info(
-            "Proxying request",
-            request_id=str(request.request_id),
-            method=request.method,
-            path=request.path,
-        )
+        console.print(f"[dim]->[/dim] {request.method} {request.path}")
 
-        # Build headers for local service
         headers = dict(request.headers)
 
-        # Fix Host header for local service - many apps validate Host header
-        # Replace the external host with localhost to avoid 405/400 errors
         headers["Host"] = f"localhost:{self.local_port}"
 
-        # Remove hop-by-hop headers that shouldn't be forwarded
-        # IMPORTANT: Preserve Connection: upgrade and Upgrade headers for WebSocket support
-        # This follows ngrok's pattern of forwarding upgrade headers
         hop_by_hop = {
             "keep-alive",
             "proxy-authenticate",
@@ -677,7 +669,6 @@ class TunnelClient:
             "transfer-encoding",
         }
 
-        # Check if this is a WebSocket upgrade request
         connection_header = headers.get("Connection", "").lower()
         upgrade_header = headers.get("Upgrade", "").lower()
         is_websocket_upgrade = "upgrade" in connection_header and upgrade_header == "websocket"
@@ -685,24 +676,18 @@ class TunnelClient:
         request_headers = {}
         for k, v in headers.items():
             k_lower = k.lower()
-            # Skip standard hop-by-hop headers
             if k_lower in hop_by_hop:
                 continue
-            # For WebSocket upgrades, preserve connection and upgrade headers
             if k_lower in ("connection", "upgrade"):
                 if is_websocket_upgrade:
                     request_headers[k] = v
                 continue
             request_headers[k] = v
 
-        # Fix Origin header if present - must match the Host for CORS/CSRF validation
         if "Origin" in request_headers:
-            # Replace external origin with localhost origin
             request_headers["Origin"] = f"http://localhost:{self.local_port}"
 
-        # Fix Referer header if present - some apps validate this for CSRF
         if "Referer" in request_headers:
-            # Parse the referer and replace host with localhost
             parsed = urllib.parse.urlparse(request_headers["Referer"])
             request_headers["Referer"] = urllib.parse.urlunparse(
                 (
@@ -718,12 +703,8 @@ class TunnelClient:
         response: HttpResponse | None = None
         last_error: Exception | None = None
 
-        # Retry loop
         for attempt in range(self.proxy_config.retry_count + 1):
             try:
-                # Use streaming to handle large responses efficiently
-                # This prevents loading entire files into memory and enables
-                # faster time-to-first-byte for static assets
                 try:
                     async with self._http_client.stream(
                         method=request.method,
@@ -731,7 +712,6 @@ class TunnelClient:
                         headers=request_headers,
                         content=request.body,
                     ) as resp:
-                        # Check if we should retry on this status
                         if (
                             resp.status_code in self.proxy_config.retry_on_status
                             and attempt < self.proxy_config.retry_count
@@ -744,49 +724,42 @@ class TunnelClient:
                             await asyncio.sleep(0.1 * (attempt + 1))
                             continue
 
-                        # Check if this is a streaming response that needs immediate forwarding
                         content_type = resp.headers.get("content-type", "").lower()
                         transfer_encoding = resp.headers.get("transfer-encoding", "").lower()
                         has_content_length = "content-length" in resp.headers
 
-                        # Event-based streaming content types (forward immediately)
                         is_event_stream = (
-                            "text/event-stream" in content_type  # SSE
-                            or "application/x-ndjson" in content_type  # NDJSON
-                            or "application/stream+json" in content_type  # Stream JSON
-                            or "application/jsonl" in content_type  # JSON Lines
+                            "text/event-stream" in content_type
+                            or "application/x-ndjson" in content_type
+                            or "application/stream+json" in content_type
+                            or "application/jsonl" in content_type
                         )
 
-                        # gRPC streaming (binary framed protocol)
                         is_grpc_stream = (
-                            "application/grpc" in content_type  # gRPC
-                            or "application/grpc+proto" in content_type  # gRPC protobuf
-                            or "application/grpc-web" in content_type  # gRPC-Web
+                            "application/grpc" in content_type
+                            or "application/grpc+proto" in content_type
+                            or "application/grpc-web" in content_type
                         )
 
-                        # Multipart streaming (MJPEG cameras, mixed content)
                         is_multipart_stream = (
-                            "multipart/x-mixed-replace" in content_type  # MJPEG
-                            or "multipart/mixed" in content_type  # Mixed streams
+                            "multipart/x-mixed-replace" in content_type
+                            or "multipart/mixed" in content_type
                         )
 
-                        # Media streaming (video/audio with chunked transfer)
                         is_media_stream = (
                             "chunked" in transfer_encoding
                             and not has_content_length
                             and (
-                                content_type.startswith("video/")  # Video streams
-                                or content_type.startswith("audio/")  # Audio streams
-                                or "application/octet-stream" in content_type  # Binary
+                                content_type.startswith("video/")
+                                or content_type.startswith("audio/")
+                                or "application/octet-stream" in content_type
                             )
                         )
 
-                        # Chunked transfer with no content-length = streaming
                         is_chunked_stream = (
                             "chunked" in transfer_encoding and not has_content_length
                         )
 
-                        # Combine all streaming detection
                         is_streaming = (
                             is_event_stream
                             or is_grpc_stream
@@ -796,12 +769,9 @@ class TunnelClient:
                         )
 
                         if is_streaming and self._transport:
-                            # Stream SSE chunks immediately without buffering
                             await self._stream_sse_response(request, resp)
-                            return  # Response already sent via streaming
+                            return
 
-                        # Read response body in chunks for efficiency
-                        # For small responses this is still fast, for large ones it streams
                         body_chunks = []
                         async for chunk in resp.aiter_bytes(chunk_size=65536):
                             body_chunks.append(chunk)
@@ -814,7 +784,6 @@ class TunnelClient:
                             body=body,
                         )
                 except (TypeError, AttributeError):
-                    # Fallback for mocked clients or clients that don't support streaming
                     resp = await self._http_client.request(
                         method=request.method,
                         url=url,
@@ -822,7 +791,6 @@ class TunnelClient:
                         content=request.body,
                     )
 
-                    # Check if we should retry on this status
                     if (
                         resp.status_code in self.proxy_config.retry_on_status
                         and attempt < self.proxy_config.retry_count
@@ -864,10 +832,9 @@ class TunnelClient:
             except httpx.RequestError as e:
                 last_error = e
                 logger.error("Proxy request error", error=str(e))
-                break  # Don't retry on other request errors
+                break
 
         if response is None:
-            # All retries failed - provide user-friendly error message
             if isinstance(last_error, httpx.ConnectError):
                 error_msg = (
                     f"Cannot reach local service at localhost:{self.local_port}. "
@@ -889,11 +856,9 @@ class TunnelClient:
                 body=f'{{"error": "{error_msg}", "code": "LOCAL_SERVICE_ERROR"}}'.encode(),
             )
 
-        # Send response back through tunnel
         if self._transport:
             self._requests_proxied += 1
 
-            # Use streaming for large responses if enabled
             if self._streaming_enabled and len(response.body) > self._chunk_size:
                 await self._send_chunked_response(response)
             else:
@@ -910,14 +875,11 @@ class TunnelClient:
             headers=response.headers,
         )
 
-        # Send chunk start
         await self._send_message(start)
 
-        # Send all chunks
         for chunk in chunks:
             await self._send_message(chunk)
 
-        # Send chunk end
         await self._send_message(end)
 
         logger.debug(
@@ -939,12 +901,11 @@ class TunnelClient:
         stream_id = uuid4()
         sequence = 0
 
-        # Send ChunkStart with headers and status
         headers = dict(resp.headers)
         start = ChunkStart(
             stream_id=stream_id,
             request_id=request.request_id,
-            total_size=None,  # Unknown for streaming
+            total_size=None,
             content_type=headers.get("content-type", "text/event-stream"),
             status=resp.status_code,
             headers=headers,
@@ -957,7 +918,6 @@ class TunnelClient:
             stream_id=str(stream_id),
         )
 
-        # Stream each chunk immediately as it arrives
         try:
             async for chunk in resp.aiter_bytes():
                 if chunk:
@@ -972,11 +932,10 @@ class TunnelClient:
         except Exception as e:
             logger.error("SSE streaming error", error=str(e))
 
-        # Send ChunkEnd to signal completion
         end = ChunkEnd(
             stream_id=stream_id,
             total_chunks=sequence,
-            checksum=None,  # No checksum for SSE
+            checksum=None,
         )
         await self._send_message(end)
 
@@ -998,8 +957,6 @@ class TunnelClient:
         url = f"ws://localhost:{self.local_port}{ws_upgrade.path}"
 
         try:
-            # Sanitize headers for local WebSocket connection
-            # Similar to HTTP request handling - fix Host/Origin for local service
             hop_by_hop = {
                 "keep-alive",
                 "proxy-authenticate",
@@ -1018,37 +975,31 @@ class TunnelClient:
             for k, v in ws_upgrade.headers.items():
                 k_lower = k.lower()
 
-                # Skip hop-by-hop and WebSocket handshake headers
-                # (websockets library handles these automatically)
                 if k_lower in hop_by_hop:
                     continue
 
-                # Fix Host header for local service
                 if k_lower == "host":
                     extra_headers.append((k, f"localhost:{self.local_port}"))
                     continue
 
-                # Fix Origin header for local service
                 if k_lower == "origin":
                     extra_headers.append((k, f"http://localhost:{self.local_port}"))
                     continue
 
                 extra_headers.append((k, v))
 
-            # Use websockets library (faster than aiohttp for WS)
+            timeouts = _get_timeout_config()
             ws = await websockets.connect(
                 url,
                 additional_headers=extra_headers,
                 subprotocols=ws_upgrade.subprotocols or None,
-                ping_interval=30,
-                ping_timeout=10,
-                close_timeout=5,
+                ping_interval=timeouts.ping_interval,
+                ping_timeout=timeouts.ping_timeout,
+                close_timeout=timeouts.ws_close_timeout,
             )
 
-            # Store connection
             self._ws_connections[ws_upgrade.tunnel_id] = ws
 
-            # Send success response
             response = WebSocketUpgradeResponse(
                 tunnel_id=ws_upgrade.tunnel_id,
                 request_id=ws_upgrade.request_id,
@@ -1057,13 +1008,12 @@ class TunnelClient:
             )
             await self._send_message(response)
 
-            logger.info(
+            logger.debug(
                 "WebSocket connected to local",
                 tunnel_id=str(ws_upgrade.tunnel_id),
                 path=ws_upgrade.path,
             )
 
-            # Start forwarding loop from local to relay
             asyncio.create_task(
                 self._forward_ws_from_local(ws_upgrade.tunnel_id, ws)
             )
@@ -1074,7 +1024,6 @@ class TunnelClient:
                 tunnel_id=str(ws_upgrade.tunnel_id),
                 error=str(e),
             )
-            # Send failure response
             response = WebSocketUpgradeResponse(
                 tunnel_id=ws_upgrade.tunnel_id,
                 request_id=ws_upgrade.request_id,
@@ -1093,7 +1042,6 @@ class TunnelClient:
         try:
             async for message in ws:
                 if isinstance(message, str):
-                    # Text frame
                     frame = WebSocketFrame(
                         tunnel_id=tunnel_id,
                         opcode=WebSocketOpcode.TEXT,
@@ -1101,7 +1049,6 @@ class TunnelClient:
                     )
                     await self._send_message(frame)
                 elif isinstance(message, bytes):
-                    # Binary frame
                     frame = WebSocketFrame(
                         tunnel_id=tunnel_id,
                         opcode=WebSocketOpcode.BINARY,
@@ -1109,7 +1056,6 @@ class TunnelClient:
                     )
                     await self._send_message(frame)
         except websockets.ConnectionClosed as e:
-            # Send close to relay
             close_msg = WebSocketClose(
                 tunnel_id=tunnel_id,
                 code=e.code,
@@ -1155,17 +1101,12 @@ class TunnelClient:
         try:
             import grpc.aio
 
-            # Connect to local gRPC server
             channel = grpc.aio.insecure_channel(f"localhost:{self.local_port}")
 
-            # Create a generic unary stream call
-            # gRPC path format: /package.Service/Method
             method_path = f"/{grpc_open.service}/{grpc_open.method}"
 
-            # Store channel and metadata for this stream
             self._grpc_streams[grpc_open.stream_id] = (channel, method_path)
 
-            # Send success response
             response = GrpcStreamOpened(
                 tunnel_id=grpc_open.tunnel_id,
                 stream_id=grpc_open.stream_id,
@@ -1173,7 +1114,7 @@ class TunnelClient:
             )
             await self._send_message(response)
 
-            logger.info(
+            logger.debug(
                 "gRPC stream opened",
                 stream_id=str(grpc_open.stream_id),
                 service=grpc_open.service,
@@ -1215,18 +1156,11 @@ class TunnelClient:
         channel, _ = stream_data
 
         try:
-            # For simple unary calls, we can use the channel directly
-            # For streaming, this would need more complex handling
-            # The frame.data contains the protobuf-encoded message
             logger.debug(
                 "Forwarding gRPC frame",
                 stream_id=str(frame.stream_id),
                 data_len=len(frame.data),
             )
-
-            # Note: Full gRPC streaming would require implementing
-            # the grpc.aio stream interfaces. For now, we forward
-            # the raw frame data which works for unary calls.
 
         except Exception as e:
             logger.warning("Failed to forward gRPC frame", error=str(e))
@@ -1239,7 +1173,6 @@ class TunnelClient:
             channel, _ = stream_data
             await channel.close()
 
-            # Send trailers if we have status info
             if close_msg.status != 0:
                 trailers = GrpcTrailers(
                     tunnel_id=close_msg.tunnel_id,
@@ -1277,7 +1210,6 @@ class TunnelClient:
         self._running = False
         self._set_state(ConnectionState.CLOSED)
 
-        # Send disconnect message if connected
         if self._transport and self._transport.is_connected():
             try:
                 disconnect = Disconnect(reason="Client closing")
@@ -1285,22 +1217,19 @@ class TunnelClient:
             except Exception:
                 pass
 
-        # Close HTTP client
         if self._http_client:
             with contextlib.suppress(Exception):
                 await self._http_client.aclose()
             self._http_client = None
 
-        # Close transport
         if self._transport:
             with contextlib.suppress(Exception):
                 await self._transport.close()
             self._transport = None
 
-        # Clear callbacks to prevent accumulation
         self._state_hooks.clear()
 
-        logger.info("Tunnel closed", stats=self.stats)
+        logger.debug("Tunnel closed", stats=self.stats)
 
     async def __aenter__(self) -> TunnelClient:
         """Async context manager entry."""

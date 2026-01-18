@@ -258,7 +258,6 @@ class TestDomainStore:
         )
         await store1.save(reg)
 
-        # Create new store instance pointing to same file
         store2 = DomainStore(temp_storage)
         retrieved = await store2.get("api.example.com")
 
@@ -276,14 +275,11 @@ class TestDNSVerifier:
         token1 = verifier.generate_verification_token("api.example.com")
         token2 = verifier.generate_verification_token("api.example.com")
 
-        # Tokens should start with "verify="
         assert token1.startswith("verify=")
         assert token2.startswith("verify=")
 
-        # Tokens should be different (random salt)
         assert token1 != token2
 
-        # Token should have reasonable length
         assert len(token1) > 10
 
     @pytest.mark.asyncio
@@ -291,7 +287,6 @@ class TestDNSVerifier:
         """Test CNAME verification with valid record."""
         verifier = DNSVerifier("instanton.tech")
 
-        # Mock the resolver
         mock_result = MagicMock()
         mock_result.cname = "instanton.tech."
 
@@ -445,7 +440,6 @@ class TestDomainManager:
         store = DomainStore(temp_storage)
         manager = DomainManager(store, "instanton.tech")
 
-        # Create verified registration
         reg = DomainRegistration(
             domain="api.example.com",
             tunnel_id="tunnel-123",
@@ -523,7 +517,6 @@ class TestDomainManager:
 
         await manager.register_domain("API.Example.COM", "tunnel-123")
 
-        # Should find domain regardless of case
         reg = await store.get("api.example.com")
         assert reg is not None
 

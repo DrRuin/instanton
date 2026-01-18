@@ -71,7 +71,6 @@ class DNSVerifier:
     def _get_resolver(self) -> aiodns.DNSResolver:
         """Get or create DNS resolver with proper event loop handling."""
         if self._resolver is None:
-            # aiodns on Windows needs special handling
             if sys.platform == "win32":
                 try:
                     loop = asyncio.get_running_loop()
@@ -113,7 +112,6 @@ class DNSVerifier:
             result = await resolver.query_dns(domain, "CNAME")
             if result:
                 target = result.cname.rstrip(".")
-                # Check if CNAME points to base domain or any subdomain of it
                 is_valid = (
                     target == self.base_domain or target.endswith(f".{self.base_domain}")
                 )
@@ -144,11 +142,9 @@ class DNSVerifier:
             result = await resolver.query_dns(txt_domain, "TXT")
             if result:
                 for record in result:
-                    # TXT records may have quotes, strip them
                     value = record.text.strip('"').strip("'")
                     if value == expected_token:
                         return True, value
-                # Return first TXT value even if not matching
                 first_value = result[0].text.strip('"').strip("'") if result else None
                 return False, first_value
             return False, None
@@ -167,7 +163,6 @@ class DNSVerifier:
         Returns:
             VerificationResult with status and details.
         """
-        # Verify both records concurrently
         cname_task = self.verify_cname(domain)
         txt_task = self.verify_txt_record(domain, expected_token)
 
@@ -175,7 +170,6 @@ class DNSVerifier:
             cname_task, txt_task
         )
 
-        # Determine overall status
         if cname_valid and txt_valid:
             status = VerificationStatus.FULLY_VERIFIED
             error = None
@@ -212,12 +206,10 @@ class DNSVerifier:
         """
         resolver = self._get_resolver()
         try:
-            # Try A record first
             result = await resolver.query_dns(domain, "A")
             return bool(result)
         except aiodns.error.DNSError:
             try:
-                # Fallback to AAAA (IPv6)
                 result = await resolver.query_dns(domain, "AAAA")
                 return bool(result)
             except aiodns.error.DNSError:

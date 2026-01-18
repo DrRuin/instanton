@@ -22,7 +22,6 @@ For more control, use the TunnelClient directly:
 
 __version__ = "0.8.1"
 
-# SDK exports map for lazy loading
 _SDK_EXPORTS = {
     "forward",
     "forward_sync",
@@ -37,7 +36,6 @@ _SDK_EXPORTS = {
 }
 
 
-# Lazy imports for SDK functions to avoid loading everything on import
 def __getattr__(name: str):
     """Lazy load SDK functions."""
     if name in _SDK_EXPORTS:

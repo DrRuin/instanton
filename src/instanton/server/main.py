@@ -84,10 +84,8 @@ def main(
     """Run the Instanton relay server."""
     console.print(BANNER, style="cyan")
 
-    # Convert 0 to None for indefinite timeout
     timeout_value = request_timeout if request_timeout > 0 else None
 
-    # Determine if IP restrictions are enabled (any rules provided)
     ip_restrict_enabled = bool(ip_allow or ip_deny)
 
     config = ServerConfig(
@@ -129,7 +127,6 @@ async def run_server(config: ServerConfig):
         await server.start()
         console.print("Server started, press Ctrl+C to stop", style="green")
 
-        # Wait forever
         await asyncio.Event().wait()
     except KeyboardInterrupt:
         console.print("\nShutting down...", style="yellow")

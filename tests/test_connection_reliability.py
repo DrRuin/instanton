@@ -37,7 +37,6 @@ class TestDNSCaching:
     async def test_resolve_localhost(self):
         """Verify localhost resolves correctly."""
         ip = await resolve_host("localhost")
-        # Should resolve to 127.0.0.1 or similar
         assert ip in ("127.0.0.1", "::1", "localhost")
 
     @pytest.mark.asyncio
@@ -45,36 +44,28 @@ class TestDNSCaching:
         """Verify DNS results are cached."""
         clear_dns_cache()
 
-        # First call - actual resolution
         start1 = time.monotonic()
         ip1 = await resolve_host("localhost")
         time1 = time.monotonic() - start1
 
-        # Second call - should be from cache (much faster)
         start2 = time.monotonic()
         ip2 = await resolve_host("localhost")
         time2 = time.monotonic() - start2
 
         assert ip1 == ip2
-        # Cache lookup should be nearly instant
-        # Note: This is a soft test as timing can vary
-        assert time2 < 0.01  # Less than 10ms for cache hit
+        assert time2 < 0.01
 
     @pytest.mark.asyncio
     async def test_clear_dns_cache(self):
         """Verify DNS cache can be cleared."""
         await resolve_host("localhost")
         clear_dns_cache()
-        # Should not raise, just clear the cache
-        # Next resolution will be fresh
 
     @pytest.mark.asyncio
     async def test_invalid_host_returns_original(self):
         """Verify invalid hosts return the original hostname."""
-        # Very unlikely to exist
         hostname = "this-domain-definitely-does-not-exist-12345.invalid"
         result = await resolve_host(hostname)
-        # Should return original hostname when resolution fails
         assert result == hostname
 
 
@@ -90,7 +81,7 @@ class TestTransportStats:
         """Verify uptime increases after connection starts."""
         stats = TransportStats()
         stats.connection_start_time = time.time() - 10.0
-        assert stats.uptime_seconds >= 9.0  # Allow small margin
+        assert stats.uptime_seconds >= 9.0
 
     def test_healthy_when_not_started(self):
         """Verify not healthy when connection hasn't started."""
@@ -101,20 +92,20 @@ class TestTransportStats:
         """Verify healthy is True when connection just started."""
         stats = TransportStats()
         stats.connection_start_time = time.time()
-        assert stats.is_healthy is True  # Too early to tell
+        assert stats.is_healthy is True
 
     def test_healthy_with_good_latency(self):
         """Verify healthy with acceptable latency."""
         stats = TransportStats()
-        stats.connection_start_time = time.time() - 60.0  # 1 minute ago
-        stats.last_ping_latency = 0.1  # 100ms
+        stats.connection_start_time = time.time() - 60.0
+        stats.last_ping_latency = 0.1
         assert stats.is_healthy is True
 
     def test_unhealthy_with_high_latency(self):
         """Verify unhealthy with high latency."""
         stats = TransportStats()
-        stats.connection_start_time = time.time() - 60.0  # 1 minute ago
-        stats.last_ping_latency = 10.0  # 10 seconds - way too high
+        stats.connection_start_time = time.time() - 60.0
+        stats.last_ping_latency = 10.0
         assert stats.is_healthy is False
 
     def test_healthy_threshold(self):
@@ -122,11 +113,9 @@ class TestTransportStats:
         stats = TransportStats()
         stats.connection_start_time = time.time() - 60.0
 
-        # At exactly 5 seconds - should be healthy
         stats.last_ping_latency = 5.0
         assert stats.is_healthy is True
 
-        # Just over 5 seconds - should be unhealthy
         stats.last_ping_latency = 5.01
         assert stats.is_healthy is False
 
@@ -177,12 +166,8 @@ class TestImmediateFirstReconnect:
         for best user experience. Subsequent attempts use exponential
         backoff.
         """
-        # This is a documentation/design test
-        # The implementation is in _reconnect method
         transport = WebSocketTransport()
-        # First attempt should have delay = 0
-        # Verified by code inspection of _reconnect method
-        assert transport._reconnect_delay == 1.0  # Base delay for subsequent attempts
+        assert transport._reconnect_delay == 1.0
 
 
 class TestConnectionPatterns:
@@ -195,7 +180,6 @@ class TestConnectionPatterns:
         multiple HTTP connections over a single tunnel.
         We implement similar pattern with request IDs.
         """
-        # Documentation test - pattern is implemented in TunnelClient
         pass
 
     def test_tunnelto_pattern_reconnect_token(self):
@@ -204,7 +188,6 @@ class TestConnectionPatterns:
         Tunnelto uses signed reconnect tokens for session persistence
         across disconnections. The token contains subdomain and client ID.
         """
-        # Documentation test - could be added as future enhancement
         pass
 
     def test_ngrok_pattern_retry_logic(self):
@@ -215,11 +198,10 @@ class TestConnectionPatterns:
         - Max 3 retries by default
         - Timeout between 1s-30s
         """
-        # We implement similar retry in ProxyConfig
         from instanton.client.tunnel import ProxyConfig
 
         config = ProxyConfig()
-        assert config.retry_count == 2  # Max 2 retries (3 total attempts)
+        assert config.retry_count == 2
         assert 502 in config.retry_on_status
         assert 503 in config.retry_on_status
         assert 504 in config.retry_on_status
@@ -231,8 +213,6 @@ class TestConnectionPatterns:
         - Prefers QUIC for performance
         - Falls back to HTTP/2 if QUIC fails
         """
-        # We implement both QUIC and WebSocket transports
-        # User can choose via --quic/--no-quic flag
         pass
 
     def test_cloudflared_pattern_multiple_connections(self):
@@ -241,7 +221,6 @@ class TestConnectionPatterns:
         Cloudflared maintains multiple concurrent connections
         (HAConnections = 4 by default) for high availability.
         """
-        # Future enhancement - currently single connection
         pass
 
 
@@ -285,7 +264,5 @@ class TestConnectionReliabilityDefaults:
     def test_reconnect_delay_exponential_backoff(self):
         """Verify reconnect uses exponential backoff."""
         transport = WebSocketTransport()
-        # Base delay is 1 second
         assert transport._reconnect_delay == 1.0
-        # Max delay caps the backoff
         assert transport._max_reconnect_delay == 60.0

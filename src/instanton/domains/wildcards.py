@@ -58,7 +58,7 @@ def get_base_domain(wildcard_pattern: str) -> str:
     """
     if not is_wildcard_pattern(wildcard_pattern):
         raise ValueError(f"Not a wildcard pattern: {wildcard_pattern}")
-    return wildcard_pattern[2:]  # Remove "*."
+    return wildcard_pattern[2:]
 
 
 @lru_cache(maxsize=1000)
@@ -73,9 +73,7 @@ def _compile_wildcard_regex(pattern: str) -> re.Pattern[str]:
     Returns:
         Compiled regex pattern.
     """
-    # Escape the pattern for regex
     escaped = re.escape(pattern)
-    # Replace \* with [^.]+ to match exactly one subdomain level
     regex_pattern = escaped.replace(r"\*", r"[^.]+")
     return re.compile(f"^{regex_pattern}$", re.IGNORECASE)
 
@@ -132,20 +130,16 @@ def validate_wildcard_pattern(pattern: str) -> tuple[bool, str | None]:
     if not is_wildcard_pattern(pattern):
         return False, "Not a wildcard pattern"
 
-    # Check for double wildcards
     if "**" in pattern:
         return False, "Invalid wildcard: only single * prefix allowed"
 
-    # Check for wildcards in other positions
-    base = pattern[2:]  # Remove "*."
+    base = pattern[2:]
     if "*" in base:
         return False, "Invalid wildcard: * only allowed as first component"
 
-    # Check base domain has at least one component
     if "." not in base and base != "localhost":
         return False, "Invalid wildcard: base domain must have at least one dot"
 
-    # Check for empty components
     if ".." in pattern or pattern.endswith("."):
         return False, "Invalid domain format"
 
