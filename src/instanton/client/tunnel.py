@@ -998,8 +998,44 @@ class TunnelClient:
         url = f"ws://localhost:{self.local_port}{ws_upgrade.path}"
 
         try:
+            # Sanitize headers for local WebSocket connection
+            # Similar to HTTP request handling - fix Host/Origin for local service
+            hop_by_hop = {
+                "keep-alive",
+                "proxy-authenticate",
+                "proxy-authorization",
+                "te",
+                "trailers",
+                "transfer-encoding",
+                "connection",
+                "upgrade",
+                "sec-websocket-key",
+                "sec-websocket-version",
+                "sec-websocket-extensions",
+            }
+
+            extra_headers = []
+            for k, v in ws_upgrade.headers.items():
+                k_lower = k.lower()
+
+                # Skip hop-by-hop and WebSocket handshake headers
+                # (websockets library handles these automatically)
+                if k_lower in hop_by_hop:
+                    continue
+
+                # Fix Host header for local service
+                if k_lower == "host":
+                    extra_headers.append((k, f"localhost:{self.local_port}"))
+                    continue
+
+                # Fix Origin header for local service
+                if k_lower == "origin":
+                    extra_headers.append((k, f"http://localhost:{self.local_port}"))
+                    continue
+
+                extra_headers.append((k, v))
+
             # Use websockets library (faster than aiohttp for WS)
-            extra_headers = [(k, v) for k, v in ws_upgrade.headers.items()]
             ws = await websockets.connect(
                 url,
                 additional_headers=extra_headers,

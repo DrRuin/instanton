@@ -795,8 +795,8 @@ class ChunkAssembler:
 
     # Maximum age for incomplete streams (5 minutes)
     MAX_STREAM_AGE_SECONDS: float = 300.0
-    # Maximum size per stream (100MB)
-    MAX_STREAM_SIZE: int = 100 * 1024 * 1024
+    # Maximum size per stream (1GB to support large file uploads)
+    MAX_STREAM_SIZE: int = 1024 * 1024 * 1024
     # Maximum number of concurrent streams
     MAX_CONCURRENT_STREAMS: int = 1000
 

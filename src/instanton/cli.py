@@ -62,6 +62,31 @@ BANNER = """
     default=False,
     help="Disable request timeout (for long-running APIs, streaming)",
 )
+@click.option(
+    "--read-timeout",
+    type=float,
+    default=None,
+    help="Read timeout in seconds for local service responses (default: None/indefinite)",
+)
+@click.option(
+    "--max-connections",
+    type=int,
+    default=100,
+    help="Maximum concurrent connections to local service (default: 100)",
+)
+@click.option(
+    "--retry-count",
+    type=int,
+    default=2,
+    help="Number of retry attempts on connection failure (default: 2)",
+)
+@click.option(
+    "--log-level",
+    "-l",
+    type=click.Choice(["debug", "info", "warning", "error"], case_sensitive=False),
+    default="info",
+    help="Log level (default: info)",
+)
 @click.pass_context
 def main(
     ctx: click.Context,
@@ -76,6 +101,10 @@ def main(
     idle_timeout: float,
     keepalive: float,
     no_request_timeout: bool,
+    read_timeout: float | None,
+    max_connections: int,
+    retry_count: int,
+    log_level: str,
 ):
     """Instanton - Tunnel through barriers, instantly.
 
@@ -129,6 +158,10 @@ def main(
             idle_timeout,
             keepalive,
             no_request_timeout,
+            read_timeout,
+            max_connections,
+            retry_count,
+            log_level,
         )
 
 
@@ -144,6 +177,10 @@ def _run_tunnel_with_signal_handling(
     idle_timeout: float,
     keepalive: float,
     no_request_timeout: bool,
+    read_timeout: float | None,
+    max_connections: int,
+    retry_count: int,
+    log_level: str,
 ) -> None:
     """Run tunnel with proper signal handling for clean Ctrl+C shutdown."""
     global _shutdown_requested
@@ -171,6 +208,10 @@ def _run_tunnel_with_signal_handling(
             idle_timeout,
             keepalive,
             no_request_timeout,
+            read_timeout,
+            max_connections,
+            retry_count,
+            log_level,
         )
     )
 
@@ -220,6 +261,10 @@ async def start_tunnel(
     idle_timeout: float = 300.0,
     keepalive: float = 30.0,
     no_request_timeout: bool = False,
+    read_timeout: float | None = None,
+    max_connections: int = 100,
+    retry_count: int = 2,
+    log_level: str = "info",
 ):
     """Start a tunnel to expose local port.
 
@@ -235,7 +280,19 @@ async def start_tunnel(
         idle_timeout: Idle timeout before auto-disconnect
         keepalive: Keepalive interval in seconds
         no_request_timeout: Disable request timeout (for long-running APIs/streaming)
+        read_timeout: Read timeout for local service responses
+        max_connections: Maximum concurrent connections to local service
+        retry_count: Number of retry attempts on failure
+        log_level: Log level (debug, info, warning, error)
     """
+    import structlog
+
+    # Configure log level
+    structlog.configure(
+        wrapper_class=structlog.make_filtering_bound_logger(
+            getattr(__import__("logging"), log_level.upper())
+        ),
+    )
     from instanton.client.tunnel import ProxyConfig, TunnelClient
     from instanton.core.config import ClientConfig
     from instanton.sdk import _suggest_subdomain
@@ -273,10 +330,14 @@ async def start_tunnel(
         keepalive_interval=keepalive,
     )
 
-    # Create proxy config with optional indefinite timeout
+    # Create proxy config with user-specified options
+    # Priority: --no-request-timeout flag > --read-timeout option > default (None/indefinite)
+    effective_read_timeout = None if no_request_timeout else read_timeout
     proxy_config = ProxyConfig(
-        read_timeout=None if no_request_timeout else 30.0,
+        read_timeout=effective_read_timeout,
         stream_timeout=None,  # Always allow indefinite streaming
+        max_connections=max_connections,
+        retry_count=retry_count,
     )
 
     client = TunnelClient(
@@ -524,19 +585,56 @@ async def start_tcp_tunnel_cli(
 @click.argument("port", type=int)
 @click.option("--remote-port", "-r", type=int, help="Remote port to bind on server")
 @click.option("--server", default="instanton.tech", help="Instanton server address")
-@click.option("--quic/--no-quic", default=False, help="Use QUIC transport")
-def udp(port: int, remote_port: int | None, server: str, quic: bool):
+@click.option("--quic/--no-quic", default=True, help="Use QUIC transport (recommended for UDP)")
+@click.option(
+    "--keepalive",
+    "-k",
+    type=float,
+    default=10.0,
+    help="Keepalive interval in seconds (default: 10, lower for games)",
+)
+@click.option(
+    "--idle-timeout",
+    type=float,
+    default=300.0,
+    help="Idle timeout in seconds (default: 300)",
+)
+@click.option(
+    "--max-datagram-size",
+    type=int,
+    default=1400,
+    help="Maximum datagram size in bytes (default: 1400, MTU-safe)",
+)
+def udp(
+    port: int,
+    remote_port: int | None,
+    server: str,
+    quic: bool,
+    keepalive: float,
+    idle_timeout: float,
+    max_datagram_size: int,
+):
     """Start a UDP tunnel for datagram protocols.
+
+    Optimized for game servers, VoIP, DNS, and real-time applications.
 
     Examples:
 
-        instanton udp 53                    # DNS tunnel
+        instanton udp 53                         # DNS tunnel
 
-        instanton udp 5060 --remote-port 5060   # SIP/VoIP
+        instanton udp 5060 --remote-port 5060    # SIP/VoIP
 
-        instanton udp 27015                 # Game server
+        instanton udp 27015                      # Game server (Source engine)
+
+        instanton udp 7777 --keepalive 5         # Fast keepalive for games
+
+        instanton udp 19132 --quic               # Minecraft Bedrock (QUIC recommended)
     """
-    asyncio.run(start_udp_tunnel_cli(port, remote_port, server, quic))
+    asyncio.run(
+        start_udp_tunnel_cli(
+            port, remote_port, server, quic, keepalive, idle_timeout, max_datagram_size
+        )
+    )
 
 
 async def start_udp_tunnel_cli(
@@ -544,16 +642,26 @@ async def start_udp_tunnel_cli(
     remote_port: int | None,
     server: str,
     quic: bool,
+    keepalive: float = 10.0,
+    idle_timeout: float = 300.0,
+    max_datagram_size: int = 1400,
 ):
     """Start a UDP tunnel from CLI."""
     from instanton.client.udp_tunnel import UdpTunnelClient, UdpTunnelConfig
 
     console.print(BANNER, style="cyan")
     console.print(f"Starting UDP tunnel for localhost:{port}...", style="yellow")
+    console.print(
+        f"[dim]Keepalive: {keepalive}s | Idle timeout: {idle_timeout}s | "
+        f"Max datagram: {max_datagram_size} bytes[/dim]"
+    )
 
     config = UdpTunnelConfig(
         local_port=port,
         remote_port=remote_port,
+        max_datagram_size=max_datagram_size,
+        idle_timeout=idle_timeout,
+        keepalive_interval=keepalive,
     )
 
     client = UdpTunnelClient(
@@ -825,10 +933,9 @@ async def _domain_status_async(domain_name: str, storage: str):
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
 def domain_remove(domain_name: str, storage: str, yes: bool):
     """Remove a registered domain."""
-    if not yes:
-        if not click.confirm(f"Are you sure you want to remove '{domain_name}'?"):
-            console.print("[dim]Cancelled[/dim]")
-            return
+    if not yes and not click.confirm(f"Are you sure you want to remove '{domain_name}'?"):
+        console.print("[dim]Cancelled[/dim]")
+        return
 
     asyncio.run(_domain_remove_async(domain_name, storage))
 

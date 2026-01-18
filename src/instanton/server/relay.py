@@ -200,7 +200,9 @@ class RelayServer:
         self._control_app.router.add_get("/stats", self._handle_stats)
 
         # Create HTTP plane app (incoming requests to route to tunnels)
-        self._http_app = web.Application()
+        # Set client_max_size to 1GB to support large file uploads
+        # Default is 1MB which is too restrictive for real-world applications
+        self._http_app = web.Application(client_max_size=1024 * 1024 * 1024)  # 1 GB
         self._http_app.router.add_route("*", "/{path:.*}", self._handle_http_request)
 
         # Setup runners
