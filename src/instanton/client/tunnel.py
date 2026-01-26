@@ -631,7 +631,6 @@ class TunnelClient:
             self._chunk_assembler.start_stream(chunk_start)
         elif msg_type == "chunk_data":
             chunk_data = ChunkData(**msg)
-            # Check if this chunk belongs to a request stream (large upload)
             if chunk_data.stream_id in self._pending_request_streams:
                 stream_info, chunks = self._pending_request_streams[chunk_data.stream_id]
                 chunks.append(chunk_data.data)
@@ -639,7 +638,6 @@ class TunnelClient:
                 self._chunk_assembler.add_chunk(chunk_data)
         elif msg_type == "chunk_end":
             chunk_end = ChunkEnd(**msg)
-            # Check if this ends a request stream (large upload)
             if chunk_end.stream_id in self._pending_request_streams:
                 await self._complete_request_stream(chunk_end)
             else:
