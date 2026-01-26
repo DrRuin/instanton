@@ -385,10 +385,9 @@ class PerformanceConfig(BaseSettings):
         description="Maximum HTTP body size (bytes). Default 1GB.",
     )
 
-    # Streaming thresholds for large file transfers
     stream_request_threshold: int = Field(
-        default=5 * 1024 * 1024,
-        description="Request body size threshold to use streaming (bytes). Default 5MB.",
+        default=1 * 1024 * 1024,
+        description="Request body size threshold to use streaming (bytes). Default 1MB.",
     )
     stream_response_threshold: int = Field(
         default=5 * 1024 * 1024,

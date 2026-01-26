@@ -290,7 +290,9 @@ class ChunkEnd(BaseModel):
 
     type: Literal["chunk_end"] = "chunk_end"
     stream_id: UUID
-    total_chunks: int
+    request_id: UUID | None = None
+    total_chunks: int = 0
+    success: bool = True
     checksum: str | None = None
 
 

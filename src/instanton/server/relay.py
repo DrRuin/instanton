@@ -1526,7 +1526,19 @@ class RelayServer:
         stream_threshold = perf_config.stream_request_threshold
         stream_chunk_size = perf_config.stream_chunk_size
 
-        use_streaming = content_length > stream_threshold
+        # Check for chunked transfer encoding
+        transfer_encoding = request.headers.get("Transfer-Encoding", "").lower()
+        is_chunked = "chunked" in transfer_encoding
+
+        # Force streaming if:
+        # 1. Content-Length > threshold (standard case)
+        # 2. Transfer-Encoding is chunked (unknown size)
+        # 3. Content-Length is missing/0 but method has a body (likely chunked or streaming)
+        use_streaming = (
+            content_length > stream_threshold
+            or is_chunked
+            or (content_length == 0 and request.method in ("POST", "PUT", "PATCH"))
+        )
 
         headers = {}
         hop_by_hop = {
@@ -1787,6 +1799,26 @@ class RelayServer:
                 status=502,
                 content_type="text/plain",
             )
+        except ValueError as e:
+            # Handle message size limit errors specifically
+            if "Message too large" in str(e) or "too large" in str(e).lower():
+                logger.warning(
+                    "Request body too large for encoding",
+                    subdomain=subdomain,
+                    request_id=str(request_id),
+                    error=str(e),
+                )
+                REQUEST_DURATION.observe(time.time() - request_start)
+                HTTP_REQUESTS.labels(method=request.method, status="4xx").inc()
+                if is_grpc_request:
+                    GRPC_REQUESTS.labels(method=request.path, status="4xx").inc()
+                return web.Response(
+                    text="Request body too large",
+                    status=413,
+                    content_type="text/plain",
+                )
+            # Re-raise other ValueErrors to be caught by generic handler
+            raise
         except Exception as e:
             import traceback
             logger.error(

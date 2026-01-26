@@ -23,8 +23,11 @@ services:
     environment:
       - INSTANTON_DOMAIN=${INSTANTON_DOMAIN:-instanton.tech}
       - INSTANTON_LOG_LEVEL=${INSTANTON_LOG_LEVEL:-info}
-      # Request timeout in seconds. Default 120s. Set to 0 for indefinite (streaming APIs)
-      - INSTANTON_REQUEST_TIMEOUT=${INSTANTON_REQUEST_TIMEOUT:-120}
+      # Timeout settings for large file uploads (1GB+)
+      # Set to 0 for indefinite (recommended for streaming/large uploads)
+      - INSTANTON_REQUEST_TIMEOUT=${INSTANTON_REQUEST_TIMEOUT:-0}
+      - INSTANTON_WS_RECEIVE_TIMEOUT=${INSTANTON_WS_RECEIVE_TIMEOUT:-3600}
+      - INSTANTON_IDLE_TIMEOUT=${INSTANTON_IDLE_TIMEOUT:-3600}
       # OAuth/OIDC Configuration (optional - for self-hosted authentication)
       - INSTANTON_OAUTH_PROVIDER=${INSTANTON_OAUTH_PROVIDER:-}
       - INSTANTON_OAUTH_CLIENT_ID=${INSTANTON_OAUTH_CLIENT_ID:-}
@@ -46,7 +49,7 @@ services:
       - "--key"
       - "/app/certs/key.pem"
       - "--request-timeout"
-      - "${INSTANTON_REQUEST_TIMEOUT:-120}"
+      - "${INSTANTON_REQUEST_TIMEOUT:-0}"
     volumes:
       - ./certs:/certs:ro
       - instanton-data:/data
