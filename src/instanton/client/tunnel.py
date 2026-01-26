@@ -40,12 +40,8 @@ from instanton.protocol.messages import (
     ConnectRequest,
     ConnectResponse,
     Disconnect,
-    GrpcFrame,
-    GrpcStreamClose,
-    GrpcStreamOpen,
-    GrpcStreamOpened,
-    GrpcTrailers,
     HttpRequest,
+    HttpRequestStream,
     HttpResponse,
     NegotiateResponse,
     Ping,
@@ -186,6 +182,8 @@ class TunnelClient:
         config: ClientConfig | None = None,
         reconnect_config: ReconnectConfig | None = None,
         proxy_config: ProxyConfig | None = None,
+        proxy_username: str | None = None,
+        proxy_password: str | None = None,
     ) -> None:
         """Initialize tunnel client.
 
@@ -197,6 +195,8 @@ class TunnelClient:
             config: Full client configuration (overrides individual params)
             reconnect_config: Reconnection behavior configuration
             proxy_config: Request proxying configuration
+            proxy_username: Username for proxy authentication
+            proxy_password: Password for proxy authentication
         """
         if config:
             self.local_port = config.local_port
@@ -205,6 +205,8 @@ class TunnelClient:
             self.use_quic = config.use_quic
             self._keepalive_interval = config.keepalive_interval
             self._connect_timeout = config.connect_timeout
+            self._proxy_username = config.proxy_username
+            self._proxy_password = config.proxy_password
         else:
             self.local_port = local_port
             self.server_addr = server_addr
@@ -213,6 +215,8 @@ class TunnelClient:
             timeouts = _get_timeout_config()
             self._keepalive_interval = timeouts.ping_interval
             self._connect_timeout = timeouts.connect_timeout
+            self._proxy_username = proxy_username
+            self._proxy_password = proxy_password
 
         self.reconnect_config = reconnect_config or ReconnectConfig()
         self.proxy_config = proxy_config or ProxyConfig()
@@ -236,7 +240,9 @@ class TunnelClient:
 
         self._ws_connections: dict[UUID, Any] = {}
 
-        self._grpc_streams: dict[UUID, tuple[Any, Any]] = {}
+        # Track pending streaming requests (large file uploads)
+        # stream_id -> (HttpRequestStream, list of body chunks)
+        self._pending_request_streams: dict[UUID, tuple[HttpRequestStream, list[bytes]]] = {}
 
         self._state_hooks: list[Callable[[ConnectionState], None]] = []
 
@@ -306,14 +312,26 @@ class TunnelClient:
                 except Exception as e:
                     logger.warning("State hook error", error=str(e))
 
+    def _build_auth_header(self) -> dict[str, str]:
+        """Build Proxy-Authorization header if credentials are configured."""
+        if self._proxy_username and self._proxy_password:
+            import base64
+            credentials = f"{self._proxy_username}:{self._proxy_password}"
+            encoded = base64.b64encode(credentials.encode()).decode()
+            return {"Proxy-Authorization": f"Basic {encoded}"}
+        return {}
+
     async def _create_transport(self) -> Transport:
         """Create transport with appropriate timeout settings for global users."""
+        extra_headers = self._build_auth_header()
+
         if self.use_quic:
             return QuicTransport(
                 auto_reconnect=self.reconnect_config.enabled,
                 max_reconnect_attempts=self.reconnect_config.max_attempts,
                 reconnect_delay=self.reconnect_config.base_delay,
                 max_reconnect_delay=self.reconnect_config.max_delay,
+                extra_headers=extra_headers,
             )
         return WebSocketTransport(
             auto_reconnect=self.reconnect_config.enabled,
@@ -323,6 +341,7 @@ class TunnelClient:
             connect_timeout=self._connect_timeout,
             ping_interval=self._keepalive_interval,
             ping_timeout=min(self._connect_timeout / 2, 20.0),
+            extra_headers=extra_headers,
         )
 
     async def _create_http_client(self) -> httpx.AsyncClient:
@@ -601,6 +620,9 @@ class TunnelClient:
         if msg_type == "http_request":
             request = HttpRequest(**msg)
             await self._handle_http_request(request)
+        elif msg_type == "http_request_stream":
+            stream_request = HttpRequestStream(**msg)
+            await self._handle_http_request_stream(stream_request)
         elif msg_type == "pong":
             pong = Pong(**msg)
             logger.debug("Received pong", timestamp=pong.timestamp)
@@ -609,11 +631,20 @@ class TunnelClient:
             self._chunk_assembler.start_stream(chunk_start)
         elif msg_type == "chunk_data":
             chunk_data = ChunkData(**msg)
-            self._chunk_assembler.add_chunk(chunk_data)
+            # Check if this chunk belongs to a request stream (large upload)
+            if chunk_data.stream_id in self._pending_request_streams:
+                stream_info, chunks = self._pending_request_streams[chunk_data.stream_id]
+                chunks.append(chunk_data.data)
+            else:
+                self._chunk_assembler.add_chunk(chunk_data)
         elif msg_type == "chunk_end":
             chunk_end = ChunkEnd(**msg)
-            assembled = self._chunk_assembler.end_stream(chunk_end)
-            logger.debug("Assembled chunk", size=len(assembled))
+            # Check if this ends a request stream (large upload)
+            if chunk_end.stream_id in self._pending_request_streams:
+                await self._complete_request_stream(chunk_end)
+            else:
+                assembled = self._chunk_assembler.end_stream(chunk_end)
+                logger.debug("Assembled chunk", size=len(assembled))
         elif msg_type == "websocket_upgrade":
             ws_upgrade = WebSocketUpgrade(**msg)
             asyncio.create_task(self._handle_websocket_upgrade(ws_upgrade))
@@ -627,19 +658,6 @@ class TunnelClient:
             ws = self._ws_connections.pop(close_msg.tunnel_id, None)
             if ws:
                 asyncio.create_task(self._close_local_websocket(ws, close_msg))
-        elif msg_type == "grpc_stream_open":
-            grpc_open = GrpcStreamOpen(**msg)
-            asyncio.create_task(self._handle_grpc_stream_open(grpc_open))
-        elif msg_type == "grpc_frame":
-            frame = GrpcFrame(**msg)
-            stream_data = self._grpc_streams.get(frame.stream_id)
-            if stream_data:
-                asyncio.create_task(self._forward_grpc_frame_to_local(stream_data[1], frame))
-        elif msg_type == "grpc_stream_close":
-            grpc_close = GrpcStreamClose(**msg)
-            stream_data = self._grpc_streams.pop(grpc_close.stream_id, None)
-            if stream_data:
-                asyncio.create_task(self._close_local_grpc_stream(stream_data, grpc_close))
         elif msg_type == "disconnect":
             disconnect = Disconnect(**msg)
             logger.info("Server requested disconnect", reason=disconnect.reason)
@@ -770,6 +788,23 @@ class TunnelClient:
 
                         if is_streaming and self._transport:
                             await self._stream_sse_response(request, resp)
+                            return
+
+                        # Check if response is large enough to warrant streaming
+                        perf_config = get_config().performance
+                        content_length_str = resp.headers.get("content-length", "0")
+                        try:
+                            content_length = int(content_length_str)
+                        except ValueError:
+                            content_length = 0
+
+                        # Stream large responses to avoid memory bloat
+                        if (
+                            content_length > perf_config.stream_response_threshold
+                            and self._transport
+                            and self._streaming_enabled
+                        ):
+                            await self._stream_large_response(request, resp, content_length)
                             return
 
                         body_chunks = []
@@ -947,6 +982,125 @@ class TunnelClient:
         )
         self._requests_proxied += 1
 
+    async def _stream_large_response(
+        self, request: HttpRequest, resp: httpx.Response, content_length: int
+    ) -> None:
+        """Stream a large response directly without buffering the entire body.
+
+        For large file downloads, we stream chunks as we receive them to avoid
+        consuming excessive memory. Uses ChunkStart/ChunkData/ChunkEnd protocol.
+        """
+        from uuid import uuid4
+
+        stream_id = uuid4()
+        sequence = 0
+        perf_config = get_config().performance
+        chunk_size = perf_config.stream_chunk_size
+
+        headers = dict(resp.headers)
+        start = ChunkStart(
+            stream_id=stream_id,
+            request_id=request.request_id,
+            total_size=content_length,
+            content_type=headers.get("content-type", "application/octet-stream"),
+            status=resp.status_code,
+            headers=headers,
+        )
+        await self._send_message(start)
+
+        logger.debug(
+            "Starting large response stream",
+            request_id=str(request.request_id),
+            stream_id=str(stream_id),
+            content_length=content_length,
+        )
+
+        total_bytes = 0
+        try:
+            async for chunk in resp.aiter_bytes(chunk_size=chunk_size):
+                if chunk:
+                    chunk_data = ChunkData(
+                        stream_id=stream_id,
+                        sequence=sequence,
+                        data=chunk,
+                        is_final=False,
+                    )
+                    await self._send_message(chunk_data)
+                    sequence += 1
+                    total_bytes += len(chunk)
+        except Exception as e:
+            logger.error("Large response streaming error", error=str(e))
+
+        end = ChunkEnd(
+            stream_id=stream_id,
+            request_id=request.request_id,
+            total_chunks=sequence,
+            success=True,
+            checksum=None,
+        )
+        await self._send_message(end)
+
+        logger.debug(
+            "Large response stream completed",
+            request_id=str(request.request_id),
+            stream_id=str(stream_id),
+            total_chunks=sequence,
+            total_bytes=total_bytes,
+        )
+        self._requests_proxied += 1
+
+    async def _handle_http_request_stream(self, stream_request: HttpRequestStream) -> None:
+        """Handle start of streaming HTTP request (large file upload).
+
+        Stores the request metadata and prepares to accumulate body chunks.
+        The actual forwarding happens when ChunkEnd is received.
+        """
+        logger.debug(
+            "Starting request stream",
+            request_id=str(stream_request.request_id),
+            stream_id=str(stream_request.stream_id),
+            method=stream_request.method,
+            path=stream_request.path,
+            content_length=stream_request.content_length,
+        )
+        # Store the stream metadata with empty chunks list
+        self._pending_request_streams[stream_request.stream_id] = (stream_request, [])
+
+    async def _complete_request_stream(self, chunk_end: ChunkEnd) -> None:
+        """Complete a streaming HTTP request and forward to local service.
+
+        Called when all body chunks have been received. Assembles the body,
+        forwards to local service, and sends the response back.
+        """
+        stream_id = chunk_end.stream_id
+        if stream_id not in self._pending_request_streams:
+            logger.warning("Unknown request stream completed", stream_id=str(stream_id))
+            return
+
+        stream_request, chunks = self._pending_request_streams.pop(stream_id)
+
+        # Assemble the body from chunks
+        body = b"".join(chunks)
+
+        logger.debug(
+            "Request stream complete",
+            request_id=str(stream_request.request_id),
+            stream_id=str(stream_id),
+            total_chunks=len(chunks),
+            body_size=len(body),
+        )
+
+        # Create an HttpRequest from the stream data and forward it
+        request = HttpRequest(
+            request_id=stream_request.request_id,
+            method=stream_request.method,
+            path=stream_request.path,
+            headers=stream_request.headers,
+            body=body,
+        )
+
+        await self._handle_http_request(request)
+
     async def _handle_websocket_upgrade(self, ws_upgrade: WebSocketUpgrade) -> None:
         """Handle WebSocket upgrade by connecting to local WebSocket server.
 
@@ -1092,103 +1246,6 @@ class TunnelClient:
             await ws.close(code=close_msg.code, reason=close_msg.reason)
         except Exception as e:
             logger.warning("Error closing local WebSocket", error=str(e))
-
-    async def _handle_grpc_stream_open(self, grpc_open: GrpcStreamOpen) -> None:
-        """Handle gRPC stream open by connecting to local gRPC server.
-
-        Uses grpcio for connecting to local gRPC services.
-        """
-        try:
-            import grpc.aio
-
-            channel = grpc.aio.insecure_channel(f"localhost:{self.local_port}")
-
-            method_path = f"/{grpc_open.service}/{grpc_open.method}"
-
-            self._grpc_streams[grpc_open.stream_id] = (channel, method_path)
-
-            response = GrpcStreamOpened(
-                tunnel_id=grpc_open.tunnel_id,
-                stream_id=grpc_open.stream_id,
-                success=True,
-            )
-            await self._send_message(response)
-
-            logger.debug(
-                "gRPC stream opened",
-                stream_id=str(grpc_open.stream_id),
-                service=grpc_open.service,
-                method=grpc_open.method,
-            )
-
-        except ImportError:
-            logger.warning("grpcio not installed, gRPC streaming unavailable")
-            response = GrpcStreamOpened(
-                tunnel_id=grpc_open.tunnel_id,
-                stream_id=grpc_open.stream_id,
-                success=False,
-                error="grpcio not installed",
-            )
-            await self._send_message(response)
-        except Exception as e:
-            logger.error(
-                "gRPC stream open failed",
-                stream_id=str(grpc_open.stream_id),
-                error=str(e),
-            )
-            response = GrpcStreamOpened(
-                tunnel_id=grpc_open.tunnel_id,
-                stream_id=grpc_open.stream_id,
-                success=False,
-                error=str(e),
-            )
-            await self._send_message(response)
-
-    async def _forward_grpc_frame_to_local(self, method_path: str, frame: GrpcFrame) -> None:
-        """Forward a gRPC frame to local server.
-
-        gRPC frame format: 1 byte compressed flag + 4 bytes length + data
-        """
-        stream_data = self._grpc_streams.get(frame.stream_id)
-        if not stream_data:
-            return
-
-        channel, _ = stream_data
-
-        try:
-            logger.debug(
-                "Forwarding gRPC frame",
-                stream_id=str(frame.stream_id),
-                data_len=len(frame.data),
-            )
-
-        except Exception as e:
-            logger.warning("Failed to forward gRPC frame", error=str(e))
-
-    async def _close_local_grpc_stream(
-        self, stream_data: tuple[Any, Any], close_msg: GrpcStreamClose
-    ) -> None:
-        """Close local gRPC stream."""
-        try:
-            channel, _ = stream_data
-            await channel.close()
-
-            if close_msg.status != 0:
-                trailers = GrpcTrailers(
-                    tunnel_id=close_msg.tunnel_id,
-                    stream_id=close_msg.stream_id,
-                    status=close_msg.status,
-                    message=close_msg.message,
-                )
-                await self._send_message(trailers)
-
-            logger.debug(
-                "gRPC stream closed",
-                stream_id=str(close_msg.stream_id),
-                status=close_msg.status,
-            )
-        except Exception as e:
-            logger.warning("Error closing gRPC stream", error=str(e))
 
     async def _keepalive_loop(self) -> None:
         """Send periodic pings to keep connection alive."""

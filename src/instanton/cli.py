@@ -28,9 +28,15 @@ BANNER = """
 
 
 @click.group(invoke_without_command=True)
+@click.option(
+    "--config", "-c",
+    "config_file",
+    type=click.Path(exists=True),
+    help="Path to YAML or TOML config file",
+)
 @click.option("--port", "-p", type=int, help="Local port to expose")
 @click.option("--subdomain", "-s", help="Request specific subdomain")
-@click.option("--server", default="instanton.tech", help="Instanton server address")
+@click.option("--server", default=None, help="Instanton server address")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
 @click.option("--auth-token", envvar="INSTANTON_AUTH_TOKEN", help="Authentication token")
 @click.option("--inspect", "-i", is_flag=True, help="Enable request inspector")
@@ -86,12 +92,15 @@ BANNER = """
     default="warning",
     help="Log level (default: warning, use --verbose for debug)",
 )
+@click.option("--proxy-user", envvar="INSTANTON_PROXY_USER", help="Proxy auth username")
+@click.option("--proxy-pass", envvar="INSTANTON_PROXY_PASS", help="Proxy auth password")
 @click.pass_context
 def main(
     ctx: click.Context,
+    config_file: str | None,
     port: int | None,
     subdomain: str | None,
-    server: str,
+    server: str | None,
     verbose: bool,
     auth_token: str | None,
     inspect: bool,
@@ -104,6 +113,8 @@ def main(
     max_connections: int,
     retry_count: int,
     log_level: str,
+    proxy_user: str | None,
+    proxy_pass: str | None,
 ):
     """Instanton - Tunnel through barriers, instantly.
 
@@ -131,6 +142,46 @@ def main(
 
     Use 'instanton COMMAND --help' for more info on specific commands.
     """
+    file_config: dict = {}
+    if config_file:
+        from instanton.core.config import flatten_config, load_config_from_file
+        try:
+            raw_config = load_config_from_file(config_file)
+            file_config = flatten_config(raw_config)
+            console.print(f"Loaded config from {config_file}", style="dim")
+        except Exception as e:
+            console.print(f"[red]Failed to load config: {e}[/red]")
+            sys.exit(1)
+
+    if server is None:
+        server = file_config.get("server", "instanton.tech")
+    if port is None and "port" in file_config:
+        port = int(file_config["port"])
+    if subdomain is None and "subdomain" in file_config:
+        subdomain = file_config["subdomain"]
+    if timeout == 30.0 and "timeout" in file_config:
+        timeout = float(file_config["timeout"])
+    if idle_timeout == 300.0 and "idle_timeout" in file_config:
+        idle_timeout = float(file_config["idle_timeout"])
+    if keepalive == 30.0 and "keepalive" in file_config:
+        keepalive = float(file_config["keepalive"])
+    if "timeouts_connect" in file_config:
+        timeout = float(file_config["timeouts_connect"])
+    if "timeouts_idle" in file_config:
+        idle_timeout = float(file_config["timeouts_idle"])
+    if "performance_compression_level" in file_config or "performance_chunk_size" in file_config:
+        import os
+        if "performance_compression_level" in file_config:
+            os.environ["INSTANTON_COMPRESSION_LEVEL"] = str(
+                file_config["performance_compression_level"]
+            )
+        if "performance_chunk_size" in file_config:
+            os.environ["INSTANTON_CHUNK_SIZE"] = str(file_config["performance_chunk_size"])
+
+    ctx.ensure_object(dict)
+    ctx.obj["config_file"] = config_file
+    ctx.obj["file_config"] = file_config
+
     if ctx.invoked_subcommand is None:
         if port is None:
             console.print(BANNER, style="cyan")
@@ -160,6 +211,8 @@ def main(
             max_connections,
             retry_count,
             log_level,
+            proxy_user,
+            proxy_pass,
         )
 
 
@@ -179,6 +232,8 @@ def _run_tunnel_with_signal_handling(
     max_connections: int,
     retry_count: int,
     log_level: str,
+    proxy_user: str | None = None,
+    proxy_pass: str | None = None,
 ) -> None:
     """Run tunnel with proper signal handling for clean Ctrl+C shutdown."""
     global _shutdown_requested
@@ -207,6 +262,8 @@ def _run_tunnel_with_signal_handling(
             max_connections,
             retry_count,
             log_level,
+            proxy_user,
+            proxy_pass,
         )
     )
 
@@ -255,6 +312,8 @@ async def start_tunnel(
     max_connections: int = 100,
     retry_count: int = 2,
     log_level: str = "info",
+    proxy_user: str | None = None,
+    proxy_pass: str | None = None,
 ):
     """Start a tunnel to expose local port.
 
@@ -274,6 +333,8 @@ async def start_tunnel(
         max_connections: Maximum concurrent connections to local service
         retry_count: Number of retry attempts on failure
         log_level: Log level (debug, info, warning, error)
+        proxy_user: Username for proxy authentication
+        proxy_pass: Password for proxy authentication
     """
     import structlog
 
@@ -305,6 +366,8 @@ async def start_tunnel(
         connect_timeout=timeout,
         idle_timeout=idle_timeout,
         keepalive_interval=keepalive,
+        proxy_username=proxy_user,
+        proxy_password=proxy_pass,
     )
 
     effective_read_timeout = None if no_request_timeout else read_timeout
@@ -322,6 +385,8 @@ async def start_tunnel(
         use_quic=quic,
         config=client_config,
         proxy_config=proxy_config,
+        proxy_username=proxy_user,
+        proxy_password=proxy_pass,
     )
 
     try:
@@ -458,7 +523,9 @@ def version():
 @click.option("--subdomain", "-s", help="Request specific subdomain")
 @click.option("--server", default="instanton.tech", help="Instanton server address")
 @click.option("--auth-token", envvar="INSTANTON_AUTH_TOKEN", help="Authentication token")
-def http(port: int, subdomain: str | None, server: str, auth_token: str | None):
+@click.option("--proxy-user", envvar="INSTANTON_PROXY_USER", help="Proxy auth username")
+@click.option("--proxy-pass", envvar="INSTANTON_PROXY_PASS", help="Proxy auth password")
+def http(port: int, subdomain: str | None, server: str, auth_token: str | None, proxy_user: str | None, proxy_pass: str | None):
     """Start an HTTP tunnel (shorthand command).
 
     Examples:
@@ -469,7 +536,8 @@ def http(port: int, subdomain: str | None, server: str, auth_token: str | None):
     """
     asyncio.run(
         start_tunnel(
-            port, subdomain, server, verbose=False, auth_token=auth_token, inspect=False, quic=True
+            port, subdomain, server, verbose=False, auth_token=auth_token, inspect=False, quic=True,
+            proxy_user=proxy_user, proxy_pass=proxy_pass,
         )
     )
 
@@ -479,7 +547,9 @@ def http(port: int, subdomain: str | None, server: str, auth_token: str | None):
 @click.option("--remote-port", "-r", type=int, help="Remote port to bind on server")
 @click.option("--server", default="instanton.tech", help="Instanton server address")
 @click.option("--quic/--no-quic", default=False, help="Use QUIC transport")
-def tcp(port: int, remote_port: int | None, server: str, quic: bool):
+@click.option("--proxy-user", envvar="INSTANTON_PROXY_USER", help="Proxy auth username")
+@click.option("--proxy-pass", envvar="INSTANTON_PROXY_PASS", help="Proxy auth password")
+def tcp(port: int, remote_port: int | None, server: str, quic: bool, proxy_user: str | None, proxy_pass: str | None):
     """Start a TCP tunnel for non-HTTP protocols.
 
     Examples:
@@ -490,7 +560,7 @@ def tcp(port: int, remote_port: int | None, server: str, quic: bool):
 
         instanton tcp 3306                  # MySQL
     """
-    asyncio.run(start_tcp_tunnel_cli(port, remote_port, server, quic))
+    asyncio.run(start_tcp_tunnel_cli(port, remote_port, server, quic, proxy_user, proxy_pass))
 
 
 async def start_tcp_tunnel_cli(
@@ -498,6 +568,8 @@ async def start_tcp_tunnel_cli(
     remote_port: int | None,
     server: str,
     quic: bool,
+    proxy_user: str | None = None,
+    proxy_pass: str | None = None,
 ):
     """Start a TCP tunnel from CLI."""
     from instanton.client.tcp_tunnel import TcpTunnelClient, TcpTunnelConfig
@@ -514,6 +586,8 @@ async def start_tcp_tunnel_cli(
         config=config,
         server_addr=server,
         use_quic=quic,
+        proxy_username=proxy_user,
+        proxy_password=proxy_pass,
     )
 
     try:
@@ -563,6 +637,8 @@ async def start_tcp_tunnel_cli(
     default=1400,
     help="Maximum datagram size in bytes (default: 1400, MTU-safe)",
 )
+@click.option("--proxy-user", envvar="INSTANTON_PROXY_USER", help="Proxy auth username")
+@click.option("--proxy-pass", envvar="INSTANTON_PROXY_PASS", help="Proxy auth password")
 def udp(
     port: int,
     remote_port: int | None,
@@ -571,6 +647,8 @@ def udp(
     keepalive: float,
     idle_timeout: float,
     max_datagram_size: int,
+    proxy_user: str | None,
+    proxy_pass: str | None,
 ):
     """Start a UDP tunnel for datagram protocols.
 
@@ -590,7 +668,8 @@ def udp(
     """
     asyncio.run(
         start_udp_tunnel_cli(
-            port, remote_port, server, quic, keepalive, idle_timeout, max_datagram_size
+            port, remote_port, server, quic, keepalive, idle_timeout, max_datagram_size,
+            proxy_user, proxy_pass,
         )
     )
 
@@ -603,6 +682,8 @@ async def start_udp_tunnel_cli(
     keepalive: float = 10.0,
     idle_timeout: float = 300.0,
     max_datagram_size: int = 1400,
+    proxy_user: str | None = None,
+    proxy_pass: str | None = None,
 ):
     """Start a UDP tunnel from CLI."""
     from instanton.client.udp_tunnel import UdpTunnelClient, UdpTunnelConfig
@@ -626,6 +707,8 @@ async def start_udp_tunnel_cli(
         config=config,
         server_addr=server,
         use_quic=quic,
+        proxy_username=proxy_user,
+        proxy_password=proxy_pass,
     )
 
     try:

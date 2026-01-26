@@ -216,6 +216,8 @@ class TcpTunnelClient:
         config: TcpTunnelConfig | None = None,
         server_addr: str = "instanton.tech",
         use_quic: bool = False,
+        proxy_username: str | None = None,
+        proxy_password: str | None = None,
     ) -> None:
         """Initialize TCP tunnel client.
 
@@ -223,10 +225,14 @@ class TcpTunnelClient:
             config: Tunnel configuration
             server_addr: Server address
             use_quic: Use QUIC transport
+            proxy_username: Username for proxy authentication
+            proxy_password: Password for proxy authentication
         """
         self.config = config or TcpTunnelConfig()
         self.server_addr = server_addr
         self.use_quic = use_quic
+        self._proxy_username = proxy_username
+        self._proxy_password = proxy_password
 
         self._state = TcpTunnelState.DISCONNECTED
         self._transport: Transport | None = None
@@ -236,7 +242,6 @@ class TcpTunnelClient:
         self._running = False
 
         self._connections: dict[bytes, tuple[asyncio.StreamReader, asyncio.StreamWriter]] = {}
-        self._connection_tasks: dict[bytes, asyncio.Task[Any]] = {}
 
         self._state_hooks: list[Callable[[TcpTunnelState], None]] = []
 
@@ -293,6 +298,15 @@ class TcpTunnelClient:
             except Exception as e:
                 logger.warning("State hook error", error=str(e))
 
+    def _build_auth_header(self) -> dict[str, str]:
+        """Build Proxy-Authorization header if credentials are configured."""
+        if self._proxy_username and self._proxy_password:
+            import base64
+            credentials = f"{self._proxy_username}:{self._proxy_password}"
+            encoded = base64.b64encode(credentials.encode()).decode()
+            return {"Proxy-Authorization": f"Basic {encoded}"}
+        return {}
+
     async def connect(self) -> str:
         """Connect to the server and establish TCP tunnel.
 
@@ -304,10 +318,12 @@ class TcpTunnelClient:
         self._set_state(TcpTunnelState.CONNECTING)
         self._stats.start_time = time.time()
 
+        extra_headers = self._build_auth_header()
+
         if self.use_quic:
-            self._transport = QuicTransport()
+            self._transport = QuicTransport(extra_headers=extra_headers)
         else:
-            self._transport = WebSocketTransport()
+            self._transport = WebSocketTransport(extra_headers=extra_headers)
 
         try:
             await self._transport.connect(
@@ -555,6 +571,8 @@ async def start_tcp_tunnel(
     server_addr: str = "instanton.tech",
     remote_port: int | None = None,
     use_quic: bool = False,
+    proxy_username: str | None = None,
+    proxy_password: str | None = None,
 ) -> TcpTunnelClient:
     """Convenience function to start a TCP tunnel.
 
@@ -563,6 +581,8 @@ async def start_tcp_tunnel(
         server_addr: Server address
         remote_port: Optional specific remote port
         use_quic: Use QUIC transport
+        proxy_username: Username for proxy authentication
+        proxy_password: Password for proxy authentication
 
     Returns:
         Connected TcpTunnelClient instance
@@ -575,6 +595,8 @@ async def start_tcp_tunnel(
         config=config,
         server_addr=server_addr,
         use_quic=use_quic,
+        proxy_username=proxy_username,
+        proxy_password=proxy_password,
     )
     await client.connect()
     return client

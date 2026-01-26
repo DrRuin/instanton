@@ -6,12 +6,59 @@ Example: INSTANTON_CHUNK_SIZE=2097152 sets chunk_size to 2MB.
 
 from __future__ import annotations
 
-import os
-from functools import lru_cache
+import tomllib
+from pathlib import Path
 from typing import Any
 
+import yaml
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def load_config_from_file(path: str | Path) -> dict[str, Any]:
+    """Load configuration from a YAML or TOML file.
+
+    Args:
+        path: Path to the configuration file (.yaml, .yml, or .toml)
+
+    Returns:
+        Configuration dictionary
+
+    Raises:
+        FileNotFoundError: If the config file doesn't exist
+        ValueError: If the config file has encoding errors, invalid syntax, or unsupported format
+    """
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found: {path}")
+
+    try:
+        content = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        raise ValueError(f"Config file encoding error in {path}: {e}") from e
+
+    try:
+        if path.suffix in (".yaml", ".yml"):
+            return yaml.safe_load(content) or {}
+        elif path.suffix == ".toml":
+            return tomllib.loads(content)
+        else:
+            raise ValueError(f"Unsupported config format: {path.suffix}")
+    except yaml.YAMLError as e:
+        raise ValueError(f"Invalid YAML in {path}: {e}") from e
+    except tomllib.TOMLDecodeError as e:
+        raise ValueError(f"Invalid TOML in {path}: {e}") from e
+
+
+def flatten_config(config: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in config.items():
+        full_key = f"{prefix}_{key}" if prefix else key
+        if isinstance(value, dict):
+            result.update(flatten_config(value, full_key))
+        else:
+            result[full_key] = value
+    return result
 
 
 class ClientConfig(BaseModel):
@@ -26,6 +73,8 @@ class ClientConfig(BaseModel):
     keepalive_interval: float = 30.0
     auto_reconnect: bool = True
     max_reconnect_attempts: int = 15
+    proxy_username: str | None = None
+    proxy_password: str | None = None
 
 
 class ServerConfig(BaseModel):
@@ -79,6 +128,113 @@ class ServerConfig(BaseModel):
     ip_deny: list[str] = Field(
         default_factory=list,
         description="Denied IPs/CIDRs (takes precedence).",
+    )
+    auth_enabled: bool = Field(
+        default=False,
+        description="Enable basic authentication for HTTP requests.",
+    )
+    auth_username: str | None = Field(
+        default=None,
+        description="Username for basic authentication.",
+    )
+    auth_password: str | None = Field(
+        default=None,
+        repr=False,
+        description="Password for basic authentication.",
+    )
+    # Per-IP tunnel limits (abuse prevention)
+    max_tunnels_per_ip: int = Field(
+        default=10,
+        description="Maximum concurrent tunnels allowed per IP address.",
+    )
+    tunnel_creation_rate_limit: float = Field(
+        default=5.0,
+        description="Maximum tunnel creations per minute per IP.",
+    )
+    tunnel_creation_burst: int = Field(
+        default=3,
+        description="Burst allowance for tunnel creation rate limit.",
+    )
+    # Dashboard configuration
+    dashboard_enabled: bool = Field(
+        default=False,
+        description="Enable real-time traffic dashboard. Requires dashboard_user and dashboard_password.",
+    )
+    dashboard_user: str | None = Field(
+        default=None,
+        description="Username for dashboard authentication (required to enable dashboard).",
+    )
+    dashboard_password: str | None = Field(
+        default=None,
+        repr=False,
+        description="Password for dashboard authentication (required to enable dashboard).",
+    )
+    dashboard_update_interval: float = Field(
+        default=1.0,
+        description="Dashboard metrics update interval in seconds.",
+    )
+    dashboard_history_seconds: int = Field(
+        default=300,
+        description="Dashboard history buffer size in seconds (5 minutes default).",
+    )
+    dashboard_max_login_failures: int = Field(
+        default=5,
+        description="Max failed login attempts before IP lockout.",
+    )
+    dashboard_lockout_minutes: float = Field(
+        default=15.0,
+        description="How long to lock out an IP after max failures (minutes).",
+    )
+    # TCP/UDP port ranges for raw tunnels
+    tcp_port_min: int = Field(
+        default=10000,
+        description="TCP tunnel port range start.",
+    )
+    tcp_port_max: int = Field(
+        default=19999,
+        description="TCP tunnel port range end.",
+    )
+    udp_port_min: int = Field(
+        default=20000,
+        description="UDP tunnel port range start.",
+    )
+    udp_port_max: int = Field(
+        default=29999,
+        description="UDP tunnel port range end.",
+    )
+    # OAuth/OIDC configuration (self-hosted only)
+    oauth_enabled: bool = Field(
+        default=False,
+        description="Enable OAuth/OIDC authentication for tunnel access.",
+    )
+    oauth_provider: str = Field(
+        default="oidc",
+        description="OAuth provider: 'github', 'google', or 'oidc'.",
+    )
+    oauth_client_id: str | None = Field(
+        default=None,
+        description="OAuth client ID.",
+    )
+    oauth_client_secret: str | None = Field(
+        default=None,
+        repr=False,
+        description="OAuth client secret.",
+    )
+    oauth_issuer_url: str | None = Field(
+        default=None,
+        description="OIDC issuer URL for discovery (e.g., https://accounts.google.com).",
+    )
+    oauth_allowed_domains: list[str] = Field(
+        default_factory=list,
+        description="Allowed email domains (e.g., ['mycompany.com']).",
+    )
+    oauth_allowed_emails: list[str] = Field(
+        default_factory=list,
+        description="Allowed specific emails.",
+    )
+    oauth_session_duration: int = Field(
+        default=86400,
+        description="Session duration in seconds (default 24 hours).",
     )
 
 
@@ -227,6 +383,20 @@ class PerformanceConfig(BaseSettings):
     http_max_body_size: int = Field(
         default=1024 * 1024 * 1024,
         description="Maximum HTTP body size (bytes). Default 1GB.",
+    )
+
+    # Streaming thresholds for large file transfers
+    stream_request_threshold: int = Field(
+        default=10 * 1024 * 1024,
+        description="Request body size threshold to use streaming (bytes). Default 10MB.",
+    )
+    stream_response_threshold: int = Field(
+        default=10 * 1024 * 1024,
+        description="Response body size threshold to use streaming (bytes). Default 10MB.",
+    )
+    stream_chunk_size: int = Field(
+        default=1024 * 1024,
+        description="Chunk size for streaming large files (bytes). Default 1MB.",
     )
 
     def get_skip_compression_types(self) -> set[str]:

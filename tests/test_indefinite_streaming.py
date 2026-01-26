@@ -313,28 +313,6 @@ class TestConnectionPersistence:
         assert client.proxy_config.stream_timeout is None
 
 
-class TestRealTimeStreamingScenarios:
-    """Tests for real-world streaming scenarios."""
-
-    def test_websocket_upgrade_preserved(self):
-        """Test that WebSocket upgrade requests are preserved."""
-        from instanton.protocol.messages import TunnelProtocol
-
-        assert TunnelProtocol.WEBSOCKET == 4
-
-    def test_grpc_streaming_supported(self):
-        """Test that gRPC streaming is supported."""
-        from instanton.protocol.messages import TunnelProtocol
-
-        assert TunnelProtocol.GRPC == 3
-
-    def test_http2_streaming_supported(self):
-        """Test that HTTP/2 streaming is supported."""
-        from instanton.protocol.messages import TunnelProtocol
-
-        assert TunnelProtocol.HTTP2 == 2
-
-
 class TestStreamingChunkSize:
     """Tests for streaming chunk size configuration."""
 

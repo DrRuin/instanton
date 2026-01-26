@@ -1,9 +1,19 @@
 """Security module for Instanton tunnel application.
 
 This module provides security features including:
+- Basic authentication (timing-attack resistant)
 - Rate limiting (sliding window)
 - IP restrictions (CIDR allow/deny)
+- OAuth/OIDC authentication (self-hosted only)
 """
+
+from instanton.security.basicauth import (
+    PROXY_AUTH_CHALLENGE,
+    PROXY_AUTH_HEADER,
+    AuthResult,
+    BasicAuthenticator,
+    create_basic_authenticator,
+)
 
 from instanton.security.iprestrict import (
     IPCheckResult,
@@ -20,14 +30,42 @@ from instanton.security.ratelimit import (
     create_rate_limiter,
 )
 
+from instanton.security.oauth import (
+    OAuthAuthenticator,
+    OAuthConfig,
+    OAuthResult,
+    ProviderConfig,
+    Session,
+    SessionManager,
+    create_oauth_authenticator,
+    create_provider,
+)
+
 __all__ = [
+    # Basic Authentication
+    "PROXY_AUTH_CHALLENGE",
+    "PROXY_AUTH_HEADER",
+    "AuthResult",
+    "BasicAuthenticator",
+    "create_basic_authenticator",
+    # IP Restriction
+    "IPCheckResult",
+    "IPPolicy",
+    "IPRestrictor",
+    "create_ip_restrictor",
+    # Rate Limiting
     "RateLimitConfig",
     "RateLimiter",
     "RateLimitResult",
     "SlidingWindowCounter",
     "create_rate_limiter",
-    "IPCheckResult",
-    "IPPolicy",
-    "IPRestrictor",
-    "create_ip_restrictor",
+    # OAuth/OIDC Authentication
+    "OAuthAuthenticator",
+    "OAuthConfig",
+    "OAuthResult",
+    "ProviderConfig",
+    "Session",
+    "SessionManager",
+    "create_oauth_authenticator",
+    "create_provider",
 ]

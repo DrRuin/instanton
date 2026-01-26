@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instanton Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <link rel="stylesheet" href="/dashboard/static/css/dashboard.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-left">
+            <h1 class="logo">INSTANTON</h1>
+            <span class="subtitle">Real-time Traffic Dashboard</span>
+        </div>
+        <div class="header-right">
+            <div class="connection-status" id="connectionStatus">
+                <span class="status-dot"></span>
+                <span class="status-text">Connecting...</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <!-- Metric Cards -->
+        <section class="metrics-grid">
+            <div class="metric-card" id="tunnelsCard">
+                <div class="metric-header">
+                    <span class="metric-icon">&#128279;</span>
+                    <span class="metric-title">Active Tunnels</span>
+                </div>
+                <div class="metric-value" id="totalTunnels">-</div>
+                <div class="metric-breakdown">
+                    <span class="breakdown-item"><span class="dot http"></span>HTTP: <span id="httpTunnels">0</span></span>
+                    <span class="breakdown-item"><span class="dot tcp"></span>TCP: <span id="tcpTunnels">0</span></span>
+                    <span class="breakdown-item"><span class="dot udp"></span>UDP: <span id="udpTunnels">0</span></span>
+                </div>
+            </div>
+
+            <div class="metric-card" id="requestsCard">
+                <div class="metric-header">
+                    <span class="metric-icon">&#9889;</span>
+                    <span class="metric-title">Requests/sec</span>
+                </div>
+                <div class="metric-value" id="requestsPerSec">-</div>
+                <div class="sparkline-container">
+                    <canvas id="requestsSparkline" width="120" height="30"></canvas>
+                </div>
+            </div>
+
+            <div class="metric-card" id="bandwidthCard">
+                <div class="metric-header">
+                    <span class="metric-icon">&#128246;</span>
+                    <span class="metric-title">Bandwidth</span>
+                </div>
+                <div class="metric-value" id="bandwidth">-</div>
+                <div class="metric-breakdown">
+                    <span class="breakdown-item in">&#8595; In: <span id="bytesIn">0 B/s</span></span>
+                    <span class="breakdown-item out">&#8593; Out: <span id="bytesOut">0 B/s</span></span>
+                </div>
+            </div>
+
+            <div class="metric-card" id="latencyCard">
+                <div class="metric-header">
+                    <span class="metric-icon">&#9201;</span>
+                    <span class="metric-title">Latency (p95)</span>
+                </div>
+                <div class="metric-value" id="latencyP95">-</div>
+                <div class="metric-breakdown">
+                    <span class="breakdown-item">p50: <span id="latencyP50">0ms</span></span>
+                    <span class="breakdown-item">p99: <span id="latencyP99">0ms</span></span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Charts -->
+        <section class="charts-grid">
+            <div class="chart-container">
+                <h3 class="chart-title">Traffic Over Time</h3>
+                <div id="trafficChart" class="chart"></div>
+            </div>
+            <div class="chart-container">
+                <h3 class="chart-title">Latency Percentiles</h3>
+                <div id="latencyChart" class="chart"></div>
+            </div>
+        </section>
+
+        <!-- Tunnel Distribution Chart -->
+        <section class="distribution-section">
+            <div class="chart-container half-width">
+                <h3 class="chart-title">Tunnel Distribution</h3>
+                <div id="distributionChart" class="chart"></div>
+            </div>
+            <div class="chart-container half-width">
+                <h3 class="chart-title">Connections Over Time</h3>
+                <div id="connectionsChart" class="chart"></div>
+            </div>
+        </section>
+
+        <!-- Tunnel Table -->
+        <section class="tunnel-table-section">
+            <div class="table-header">
+                <h3 class="section-title">Active Tunnels</h3>
+                <div class="table-controls">
+                    <input type="text" id="tunnelSearch" placeholder="Search tunnels..." class="search-input">
+                </div>
+            </div>
+            <div class="table-wrapper">
+                <table class="tunnel-table" id="tunnelTable">
+                    <thead>
+                        <tr>
+                            <th data-sort="subdomain">Subdomain</th>
+                            <th data-sort="type">Type</th>
+                            <th data-sort="request_count">Requests</th>
+                            <th data-sort="bytes_in">Bytes In</th>
+                            <th data-sort="bytes_out">Bytes Out</th>
+                            <th data-sort="source_ip">Source IP</th>
+                            <th data-sort="uptime_seconds">Uptime</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tunnelTableBody">
+                        <tr class="empty-row">
+                            <td colspan="7">No active tunnels</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <!-- Tunnel Detail Modal -->
+    <div class="modal" id="tunnelModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Tunnel Details</h3>
+                <button class="modal-close" id="modalClose">&times;</button>
+            </div>
+            <div class="modal-body" id="tunnelDetails">
+                <!-- Details populated by JS -->
+            </div>
+        </div>
+    </div>
+
+    <script src="/dashboard/static/js/websocket.js"></script>
+    <script src="/dashboard/static/js/charts.js"></script>
+    <script src="/dashboard/static/js/app.js"></script>
+</body>
+</html>

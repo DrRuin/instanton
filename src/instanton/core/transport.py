@@ -208,6 +208,7 @@ class WebSocketTransport(Transport):
         ping_interval: float = 30.0,
         ping_timeout: float = 15.0,
         connect_timeout: float = 30.0,
+        extra_headers: dict[str, str] | None = None,
     ):
         """Initialize WebSocket transport.
 
@@ -219,6 +220,7 @@ class WebSocketTransport(Transport):
             ping_interval: Interval between heartbeat pings in seconds.
             ping_timeout: Timeout for ping responses in seconds.
             connect_timeout: Timeout for initial connection in seconds.
+            extra_headers: Additional headers to send with the WebSocket connection.
 
         Note:
             Default timeouts are increased for global users connecting from
@@ -238,6 +240,7 @@ class WebSocketTransport(Transport):
         self._ping_interval = ping_interval
         self._ping_timeout = ping_timeout
         self._connect_timeout = connect_timeout
+        self._extra_headers = extra_headers or {}
 
         self._heartbeat_task: asyncio.Task[Any] | None = None
         self._sleep_monitor_task: asyncio.Task[Any] | None = None
@@ -319,11 +322,13 @@ class WebSocketTransport(Transport):
         try:
             perf = _get_config().performance
             timeouts = _get_config().timeouts
+            headers = {"Host": f"{original_host}:{port}"}
+            headers.update(self._extra_headers)
             self._ws = await asyncio.wait_for(
                 connect(
                     url,
                     ssl=ssl_context,
-                    additional_headers={"Host": f"{original_host}:{port}"},
+                    additional_headers=headers,
                     ping_interval=None,
                     ping_timeout=None,
                     close_timeout=timeouts.ws_close_timeout,
@@ -564,9 +569,11 @@ class WebSocketTransport(Transport):
                 url = self._build_url(self._addr)
                 perf = _get_config().performance
                 timeouts = _get_config().timeouts
+                headers = dict(self._extra_headers)
                 self._ws = await asyncio.wait_for(
                     connect(
                         url,
+                        additional_headers=headers,
                         ping_interval=None,
                         ping_timeout=None,
                         close_timeout=timeouts.ws_close_timeout,
@@ -897,6 +904,7 @@ class QuicTransport(Transport):
         max_reconnect_attempts: int = 10,
         reconnect_delay: float = 1.0,
         max_reconnect_delay: float = 60.0,
+        extra_headers: dict[str, str] | None = None,
     ) -> None:
         """Initialize QUIC transport.
 
@@ -906,8 +914,10 @@ class QuicTransport(Transport):
             max_reconnect_attempts: Maximum number of reconnection attempts.
             reconnect_delay: Initial delay between reconnection attempts.
             max_reconnect_delay: Maximum delay between reconnection attempts.
+            extra_headers: Additional headers (stored for API consistency, not used in QUIC).
         """
         self._config = config or QuicTransportConfig()
+        self._extra_headers = extra_headers or {}
         self._config.auto_reconnect = auto_reconnect
         self._config.max_reconnect_attempts = max_reconnect_attempts
         self._config.reconnect_delay = reconnect_delay

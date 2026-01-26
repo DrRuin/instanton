@@ -30,19 +30,7 @@ class ErrorCode(IntEnum):
     CHUNK_ERROR = 8
     TUNNEL_ERROR = 9
     WEBSOCKET_ERROR = 10
-    GRPC_ERROR = 11
     INTERNAL_ERROR = 255
-
-
-class TunnelProtocol(IntEnum):
-    """Protocol types for tunnel connections."""
-
-    HTTP1 = 1
-    HTTP2 = 2
-    GRPC = 3
-    WEBSOCKET = 4
-    TCP = 5
-    UDP = 6
 
 
 class CompressionType(IntEnum):
@@ -52,6 +40,7 @@ class CompressionType(IntEnum):
     LZ4 = 1
     ZSTD = 2
     BROTLI = 3
+    GZIP = 4
 
 
 PROTOCOL_VERSION = 2
@@ -60,10 +49,12 @@ MAGIC = b"TACH"
 _DEFAULT_MAX_MESSAGE_SIZE = 64 * 1024 * 1024
 _DEFAULT_CHUNK_SIZE = 1024 * 1024
 _DEFAULT_MIN_COMPRESSION_SIZE = 1024
+_DEFAULT_MAX_DECOMPRESSED_SIZE = 128 * 1024 * 1024  # 128MB max decompressed size
 
 MAX_MESSAGE_SIZE = _DEFAULT_MAX_MESSAGE_SIZE
 CHUNK_SIZE = _DEFAULT_CHUNK_SIZE
 MIN_COMPRESSION_SIZE = _DEFAULT_MIN_COMPRESSION_SIZE
+MAX_DECOMPRESSED_SIZE = _DEFAULT_MAX_DECOMPRESSED_SIZE
 SKIP_COMPRESSION_TYPES = {
     "image/", "video/", "audio/", "application/zip", "application/gzip",
     "application/x-rar", "application/x-7z", "application/pdf",
@@ -129,22 +120,62 @@ def compress_data(data: bytes, compression: CompressionType) -> bytes:
         level = get_compression_level()
         quality = min(max(level // 2 + 1, 1), 11)
         return brotli.compress(data, quality=quality)
+    elif compression == CompressionType.GZIP:
+        import gzip
+        return gzip.compress(data, compresslevel=min(get_compression_level(), 9))
     else:
         raise ValueError(f"Unsupported compression type: {compression}")
 
 
-def decompress_data(data: bytes, compression: CompressionType) -> bytes:
-    """Decompress data using the specified algorithm."""
+def decompress_data(data: bytes, compression: CompressionType, max_size: int = MAX_DECOMPRESSED_SIZE) -> bytes:
+    """Decompress data using the specified algorithm with size limit protection.
+
+    Args:
+        data: Compressed data to decompress
+        compression: Compression algorithm used
+        max_size: Maximum allowed decompressed size (default: 128MB)
+
+    Returns:
+        Decompressed data
+
+    Raises:
+        ValueError: If decompression fails or exceeds size limit
+    """
     if compression == CompressionType.NONE:
         return data
-    elif compression == CompressionType.LZ4:
-        return lz4.frame.decompress(data)
-    elif compression == CompressionType.ZSTD:
-        return _zstd_decompressor.decompress(data)
-    elif compression == CompressionType.BROTLI:
-        return brotli.decompress(data)
-    else:
-        raise ValueError(f"Unsupported compression type: {compression}")
+
+    try:
+        if compression == CompressionType.GZIP:
+            import gzip
+            import io
+            with gzip.GzipFile(fileobj=io.BytesIO(data)) as f:
+                result = b""
+                while chunk := f.read(65536):
+                    result += chunk
+                    if len(result) > max_size:
+                        raise ValueError(f"Decompressed size exceeds {max_size} bytes (compression bomb protection)")
+                return result
+        elif compression == CompressionType.LZ4:
+            result = lz4.frame.decompress(data, max_output_size=max_size)
+            if len(result) > max_size:
+                raise ValueError(f"Decompressed size exceeds {max_size} bytes (compression bomb protection)")
+            return result
+        elif compression == CompressionType.ZSTD:
+            result = _zstd_decompressor.decompress(data, max_output_size=max_size)
+            if len(result) > max_size:
+                raise ValueError(f"Decompressed size exceeds {max_size} bytes (compression bomb protection)")
+            return result
+        elif compression == CompressionType.BROTLI:
+            result = brotli.decompress(data)
+            if len(result) > max_size:
+                raise ValueError(f"Decompressed size exceeds {max_size} bytes (compression bomb protection)")
+            return result
+        else:
+            raise ValueError(f"Unsupported compression type: {compression}")
+    except ValueError:
+        raise
+    except Exception as e:
+        raise ValueError(f"Decompression failed ({compression.name}): {e}") from e
 
 
 class NegotiateRequest(BaseModel):
@@ -158,6 +189,7 @@ class NegotiateRequest(BaseModel):
             int(CompressionType.LZ4),
             int(CompressionType.ZSTD),
             int(CompressionType.BROTLI),
+            int(CompressionType.GZIP),
         ]
     )
     supports_streaming: bool = True
@@ -209,6 +241,22 @@ class HttpRequest(BaseModel):
     body: bytes = b""
 
 
+class HttpRequestStream(BaseModel):
+    """HTTP request with streamed body - headers sent first, body follows as chunks.
+
+    Used for large file uploads to avoid buffering entire body in memory.
+    Flow: HttpRequestStream → ChunkData* → ChunkEnd
+    """
+
+    type: Literal["http_request_stream"] = "http_request_stream"
+    request_id: UUID = Field(default_factory=uuid4)
+    stream_id: UUID = Field(default_factory=uuid4)
+    method: str
+    path: str
+    headers: dict[str, str] = Field(default_factory=dict)
+    content_length: int | None = None  # Total body size if known
+
+
 class HttpResponse(BaseModel):
     """HTTP response from local service."""
 
@@ -250,15 +298,6 @@ class ChunkEnd(BaseModel):
     checksum: str | None = None
 
 
-class ChunkAck(BaseModel):
-    """Acknowledgment of received chunks (for flow control)."""
-
-    type: Literal["chunk_ack"] = "chunk_ack"
-    stream_id: UUID
-    last_received_sequence: int
-    window_size: int = 16
-
-
 class Ping(BaseModel):
     """Keep-alive ping."""
 
@@ -278,80 +317,6 @@ class Disconnect(BaseModel):
     """Graceful disconnect."""
 
     type: Literal["disconnect"] = "disconnect"
-    reason: str = ""
-
-
-class TcpTunnelOpen(BaseModel):
-    """Request to open a raw TCP tunnel."""
-
-    type: Literal["tcp_tunnel_open"] = "tcp_tunnel_open"
-    tunnel_id: UUID = Field(default_factory=uuid4)
-    target_host: str
-    target_port: int
-    protocol: int = TunnelProtocol.TCP
-
-
-class TcpTunnelOpened(BaseModel):
-    """Response confirming TCP tunnel is open."""
-
-    type: Literal["tcp_tunnel_opened"] = "tcp_tunnel_opened"
-    tunnel_id: UUID
-    success: bool = True
-    error: str | None = None
-
-
-class TcpData(BaseModel):
-    """Raw TCP data message for tunnel passthrough."""
-
-    type: Literal["tcp_data"] = "tcp_data"
-    tunnel_id: UUID
-    sequence: int = 0
-    data: bytes
-    is_final: bool = False
-
-
-class TcpTunnelClose(BaseModel):
-    """Request to close a TCP tunnel."""
-
-    type: Literal["tcp_tunnel_close"] = "tcp_tunnel_close"
-    tunnel_id: UUID
-    reason: str = ""
-
-
-class UdpTunnelOpen(BaseModel):
-    """Request to open a UDP tunnel."""
-
-    type: Literal["udp_tunnel_open"] = "udp_tunnel_open"
-    tunnel_id: UUID = Field(default_factory=uuid4)
-    target_host: str
-    target_port: int
-
-
-class UdpTunnelOpened(BaseModel):
-    """Response confirming UDP tunnel is open."""
-
-    type: Literal["udp_tunnel_opened"] = "udp_tunnel_opened"
-    tunnel_id: UUID
-    success: bool = True
-    error: str | None = None
-
-
-class UdpDatagram(BaseModel):
-    """UDP datagram message for tunnel passthrough."""
-
-    type: Literal["udp_datagram"] = "udp_datagram"
-    tunnel_id: UUID
-    sequence: int = 0
-    data: bytes
-    source_port: int | None = None
-    dest_port: int | None = None
-
-
-class UdpTunnelClose(BaseModel):
-    """Request to close a UDP tunnel."""
-
-    type: Literal["udp_tunnel_close"] = "udp_tunnel_close"
-    tunnel_id: UUID
     reason: str = ""
 
 
@@ -412,115 +377,36 @@ class WebSocketClose(BaseModel):
     reason: str = ""
 
 
-class GrpcStreamOpen(BaseModel):
-    """Request to open a gRPC stream tunnel."""
-
-    type: Literal["grpc_stream_open"] = "grpc_stream_open"
-    tunnel_id: UUID = Field(default_factory=uuid4)
-    stream_id: UUID = Field(default_factory=uuid4)
-    service: str
-    method: str
-    headers: dict[str, str] = Field(default_factory=dict)
-    timeout_ms: int | None = None
-
-
-class GrpcStreamOpened(BaseModel):
-    """Response confirming gRPC stream is open."""
-
-    type: Literal["grpc_stream_opened"] = "grpc_stream_opened"
-    tunnel_id: UUID
-    stream_id: UUID
-    success: bool = True
-    headers: dict[str, str] = Field(default_factory=dict)
-    error: str | None = None
-
-
-class GrpcFrame(BaseModel):
-    """gRPC frame for streaming passthrough."""
-
-    type: Literal["grpc_frame"] = "grpc_frame"
-    tunnel_id: UUID
-    stream_id: UUID
-    sequence: int = 0
-    compressed: bool = False
-    data: bytes
-    is_final: bool = False
-
-
-class GrpcTrailers(BaseModel):
-    """gRPC trailing metadata."""
-
-    type: Literal["grpc_trailers"] = "grpc_trailers"
-    tunnel_id: UUID
-    stream_id: UUID
-    status: int = 0
-    message: str = ""
-    trailers: dict[str, str] = Field(default_factory=dict)
-
-
-class GrpcStreamClose(BaseModel):
-    """Request to close a gRPC stream."""
-
-    type: Literal["grpc_stream_close"] = "grpc_stream_close"
-    tunnel_id: UUID
-    stream_id: UUID
-    status: int = 0
-    message: str = ""
-
-
 ClientMessage = (
     NegotiateRequest
     | ConnectRequest
     | HttpResponse
     | ChunkData
     | ChunkEnd
-    | ChunkAck
     | Ping
     | Disconnect
-    | TcpTunnelOpen
-    | TcpData
-    | TcpTunnelClose
-    | UdpTunnelOpen
-    | UdpDatagram
-    | UdpTunnelClose
     | WebSocketUpgrade
     | WebSocketFrame
     | WebSocketClose
-    | GrpcStreamOpen
-    | GrpcFrame
-    | GrpcStreamClose
 )
 
 ServerMessage = (
     NegotiateResponse
     | ConnectResponse
     | HttpRequest
+    | HttpRequestStream
     | ChunkStart
     | ChunkData
     | ChunkEnd
-    | ChunkAck
     | Pong
-    | TcpTunnelOpened
-    | TcpData
-    | TcpTunnelClose
-    | UdpTunnelOpened
-    | UdpDatagram
-    | UdpTunnelClose
     | WebSocketUpgradeResponse
     | WebSocketFrame
     | WebSocketClose
-    | GrpcStreamOpened
-    | GrpcFrame
-    | GrpcTrailers
-    | GrpcStreamClose
 )
 
 AllMessages = ClientMessage | ServerMessage
 
-TcpTunnelMessage = TcpTunnelOpen | TcpTunnelOpened | TcpData | TcpTunnelClose
-UdpTunnelMessage = UdpTunnelOpen | UdpTunnelOpened | UdpDatagram | UdpTunnelClose
 WebSocketMessage = WebSocketUpgrade | WebSocketUpgradeResponse | WebSocketFrame | WebSocketClose
-GrpcMessage = GrpcStreamOpen | GrpcStreamOpened | GrpcFrame | GrpcTrailers | GrpcStreamClose
 
 MESSAGE_TYPES: dict[str, type[BaseModel]] = {
     "negotiate": NegotiateRequest,
@@ -529,31 +415,18 @@ MESSAGE_TYPES: dict[str, type[BaseModel]] = {
     "connected": ConnectResponse,
     "error": ConnectResponse,
     "http_request": HttpRequest,
+    "http_request_stream": HttpRequestStream,
     "http_response": HttpResponse,
     "chunk_start": ChunkStart,
     "chunk_data": ChunkData,
     "chunk_end": ChunkEnd,
-    "chunk_ack": ChunkAck,
     "ping": Ping,
     "pong": Pong,
     "disconnect": Disconnect,
-    "tcp_tunnel_open": TcpTunnelOpen,
-    "tcp_tunnel_opened": TcpTunnelOpened,
-    "tcp_data": TcpData,
-    "tcp_tunnel_close": TcpTunnelClose,
-    "udp_tunnel_open": UdpTunnelOpen,
-    "udp_tunnel_opened": UdpTunnelOpened,
-    "udp_datagram": UdpDatagram,
-    "udp_tunnel_close": UdpTunnelClose,
     "websocket_upgrade": WebSocketUpgrade,
     "websocket_upgrade_response": WebSocketUpgradeResponse,
     "websocket_frame": WebSocketFrame,
     "websocket_close": WebSocketClose,
-    "grpc_stream_open": GrpcStreamOpen,
-    "grpc_stream_opened": GrpcStreamOpened,
-    "grpc_frame": GrpcFrame,
-    "grpc_trailers": GrpcTrailers,
-    "grpc_stream_close": GrpcStreamClose,
 }
 
 
@@ -593,10 +466,17 @@ def _should_skip_compression(msg: BaseModel, payload_size: int) -> bool:
     if msg_type in ("http_request", "http_response"):
         headers = getattr(msg, "headers", {}) or {}
         content_type = ""
+        content_encoding = ""
         for k, v in headers.items():
-            if k.lower() == "content-type":
+            k_lower = k.lower()
+            if k_lower == "content-type":
                 content_type = v.lower()
-                break
+            elif k_lower == "content-encoding":
+                content_encoding = v.lower()
+
+        # Skip if already compressed via Content-Encoding (double compression prevention)
+        if content_encoding in ("gzip", "deflate", "br", "compress", "zstd"):
+            return True
 
         skip_types = get_skip_compression_types()
         for skip_type in skip_types:
@@ -867,6 +747,7 @@ class ProtocolNegotiator:
             CompressionType.LZ4,
             CompressionType.ZSTD,
             CompressionType.BROTLI,
+            CompressionType.GZIP,
         ]
         self.supports_streaming = supports_streaming
         self.max_chunk_size = max_chunk_size
@@ -902,6 +783,8 @@ class ProtocolNegotiator:
             selected = CompressionType.ZSTD
         elif CompressionType.LZ4 in common:
             selected = CompressionType.LZ4
+        elif CompressionType.GZIP in common:
+            selected = CompressionType.GZIP
         elif CompressionType.NONE in common:
             selected = CompressionType.NONE
         else:

@@ -256,6 +256,8 @@ class UdpTunnelClient:
         config: UdpTunnelConfig | None = None,
         server_addr: str = "instanton.tech",
         use_quic: bool = True,
+        proxy_username: str | None = None,
+        proxy_password: str | None = None,
     ) -> None:
         """Initialize UDP tunnel client.
 
@@ -263,10 +265,14 @@ class UdpTunnelClient:
             config: Tunnel configuration
             server_addr: Server address
             use_quic: Use QUIC transport (recommended for UDP)
+            proxy_username: Username for proxy authentication
+            proxy_password: Password for proxy authentication
         """
         self.config = config or UdpTunnelConfig()
         self.server_addr = server_addr
         self.use_quic = use_quic
+        self._proxy_username = proxy_username
+        self._proxy_password = proxy_password
 
         self._state = UdpTunnelState.DISCONNECTED
         self._transport: Transport | None = None
@@ -277,8 +283,6 @@ class UdpTunnelClient:
 
         self._udp_transport: asyncio.DatagramTransport | None = None
         self._udp_protocol: UdpTunnelProtocol | None = None
-
-        self._client_addrs: dict[tuple[str, int], tuple[str, int]] = {}
 
         self._state_hooks: list[Any] = []
 
@@ -322,6 +326,15 @@ class UdpTunnelClient:
             except Exception as e:
                 logger.warning("State hook error", error=str(e))
 
+    def _build_auth_header(self) -> dict[str, str]:
+        """Build Proxy-Authorization header if credentials are configured."""
+        if self._proxy_username and self._proxy_password:
+            import base64
+            credentials = f"{self._proxy_username}:{self._proxy_password}"
+            encoded = base64.b64encode(credentials.encode()).decode()
+            return {"Proxy-Authorization": f"Basic {encoded}"}
+        return {}
+
     async def connect(self) -> str:
         """Connect to the server and establish UDP tunnel.
 
@@ -333,10 +346,12 @@ class UdpTunnelClient:
         self._set_state(UdpTunnelState.CONNECTING)
         self._stats.start_time = time.time()
 
+        extra_headers = self._build_auth_header()
+
         if self.use_quic:
-            self._transport = QuicTransport()
+            self._transport = QuicTransport(extra_headers=extra_headers)
         else:
-            self._transport = WebSocketTransport()
+            self._transport = WebSocketTransport(extra_headers=extra_headers)
 
         try:
             await self._transport.connect(
@@ -430,8 +445,6 @@ class UdpTunnelClient:
 
         if not self._transport or not self._running:
             return
-
-        self._client_addrs[addr] = addr
 
         msg = UdpRelayMessage.encode_datagram(
             source_addr=addr,
@@ -549,6 +562,8 @@ async def start_udp_tunnel(
     server_addr: str = "instanton.tech",
     remote_port: int | None = None,
     use_quic: bool = True,
+    proxy_username: str | None = None,
+    proxy_password: str | None = None,
 ) -> UdpTunnelClient:
     """Convenience function to start a UDP tunnel.
 
@@ -557,6 +572,8 @@ async def start_udp_tunnel(
         server_addr: Server address
         remote_port: Optional specific remote port
         use_quic: Use QUIC transport (recommended)
+        proxy_username: Username for proxy authentication
+        proxy_password: Password for proxy authentication
 
     Returns:
         Connected UdpTunnelClient instance
@@ -569,6 +586,8 @@ async def start_udp_tunnel(
         config=config,
         server_addr=server_addr,
         use_quic=use_quic,
+        proxy_username=proxy_username,
+        proxy_password=proxy_password,
     )
     await client.connect()
     return client
