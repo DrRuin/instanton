@@ -503,9 +503,6 @@ def encode_message(
     else:
         compression = CompressionType.NONE
 
-    # No size limit - like Outray, we allow any size
-    # WebSocket layer handles the actual transmission limits
-
     frame = bytearray()
     frame.extend(MAGIC)
     frame.append(PROTOCOL_VERSION)

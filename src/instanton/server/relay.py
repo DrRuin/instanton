@@ -1274,11 +1274,7 @@ class RelayServer:
 
             self._ws_proxies[tunnel_id] = ws
 
-            logger.info(
-                "WebSocket proxy established",
-                tunnel_id=str(tunnel_id),
-                path=request.path_qs,
-            )
+            logger.info(f"WS CONNECT {request.path_qs} tunnel={str(tunnel_id)[:8]}")
 
             try:
                 async for msg in ws:
@@ -1292,9 +1288,9 @@ class RelayServer:
                         frame_bytes = encode_message(frame, tunnel.compression)
                         await tunnel.websocket.send_bytes(frame_bytes)
                         tunnel.bytes_sent += len(frame_bytes)
-                        # Track WebSocket metrics
                         WEBSOCKET_MESSAGES.labels(direction="in", type="text").inc()
                         BYTES_TRANSFERRED.labels(direction="in", protocol="websocket").inc(len(payload))
+                        logger.info(f"WS TEXT {len(payload)}B tunnel={str(tunnel_id)[:8]}")
                     elif msg.type == WSMsgType.BINARY:
                         frame = WebSocketFrame(
                             tunnel_id=tunnel_id,
@@ -1304,9 +1300,9 @@ class RelayServer:
                         frame_bytes = encode_message(frame, tunnel.compression)
                         await tunnel.websocket.send_bytes(frame_bytes)
                         tunnel.bytes_sent += len(frame_bytes)
-                        # Track WebSocket metrics
                         WEBSOCKET_MESSAGES.labels(direction="in", type="binary").inc()
                         BYTES_TRANSFERRED.labels(direction="in", protocol="websocket").inc(len(msg.data))
+                        logger.info(f"WS BINARY {len(msg.data)}B tunnel={str(tunnel_id)[:8]}")
                     elif msg.type == WSMsgType.CLOSE:
                         close_msg = WebSocketClose(
                             tunnel_id=tunnel_id,
@@ -1316,6 +1312,7 @@ class RelayServer:
                         close_bytes = encode_message(close_msg, tunnel.compression)
                         await tunnel.websocket.send_bytes(close_bytes)
                         tunnel.bytes_sent += len(close_bytes)
+                        logger.info(f"WS CLOSE code={msg.data or 1000} tunnel={str(tunnel_id)[:8]}")
                         break
                     elif msg.type == WSMsgType.ERROR:
                         logger.error(
@@ -1521,8 +1518,6 @@ class RelayServer:
         except ValueError:
             content_length = 0
 
-        # Simple buffered approach (like Outray) - no streaming complexity
-        # Buffer entire request body and send as single message
         use_streaming = False
 
         headers = {}
@@ -1732,22 +1727,28 @@ class RelayServer:
                     await stream_response.write(body[i : i + chunk_size])
 
                 await stream_response.write_eof()
+                duration_ms = int((time.time() - request_start) * 1000)
                 REQUEST_DURATION.observe(time.time() - request_start)
                 HTTP_REQUESTS.labels(method=request.method, status=_bucket_status(response.status)).inc()
                 if is_grpc_request:
                     GRPC_REQUESTS.labels(method=request.path, status=_bucket_status(response.status)).inc()
                     BYTES_TRANSFERRED.labels(direction="out", protocol="grpc").inc(body_size)
+                    logger.info(f"gRPC {request.method} {request.path_qs} {response.status} {duration_ms}ms {body_size}B")
                 else:
                     BYTES_TRANSFERRED.labels(direction="out", protocol="http").inc(body_size)
+                    logger.info(f"HTTP {request.method} {request.path_qs} {response.status} {duration_ms}ms {body_size}B")
                 return stream_response
             else:
+                duration_ms = int((time.time() - request_start) * 1000)
                 REQUEST_DURATION.observe(time.time() - request_start)
                 HTTP_REQUESTS.labels(method=request.method, status=_bucket_status(response.status)).inc()
                 if is_grpc_request:
                     GRPC_REQUESTS.labels(method=request.path, status=_bucket_status(response.status)).inc()
                     BYTES_TRANSFERRED.labels(direction="out", protocol="grpc").inc(len(body))
+                    logger.info(f"gRPC {request.method} {request.path_qs} {response.status} {duration_ms}ms {len(body)}B")
                 else:
                     BYTES_TRANSFERRED.labels(direction="out", protocol="http").inc(len(body))
+                    logger.info(f"HTTP {request.method} {request.path_qs} {response.status} {duration_ms}ms {len(body)}B")
                 return web.Response(
                     status=response.status,
                     headers=response_headers,
@@ -1983,9 +1984,9 @@ class RelayServer:
                     tunnel.last_activity = datetime.now(UTC)
                     data_len = len(msg.data)
                     tunnel.bytes_received += data_len
-                    # Track TCP tunnel metrics
                     BYTES_TRANSFERRED.labels(direction="in", protocol="tcp").inc(data_len)
                     TUNNEL_PACKETS.labels(protocol="tcp", direction="in").inc()
+                    logger.info(f"TCP DATA {data_len}B port={assigned_port}")
                 elif msg.type == WSMsgType.ERROR:
                     logger.error(
                         "TCP WebSocket error",
@@ -2125,9 +2126,9 @@ class RelayServer:
                     tunnel.last_activity = datetime.now(UTC)
                     data_len = len(msg.data)
                     tunnel.bytes_received += data_len
-                    # Track UDP tunnel metrics
                     BYTES_TRANSFERRED.labels(direction="in", protocol="udp").inc(data_len)
                     TUNNEL_PACKETS.labels(protocol="udp", direction="in").inc()
+                    logger.info(f"UDP DATA {data_len}B port={assigned_port}")
                 elif msg.type == WSMsgType.ERROR:
                     logger.error(
                         "UDP WebSocket error",

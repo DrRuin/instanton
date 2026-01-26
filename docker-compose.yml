@@ -23,12 +23,9 @@ services:
     environment:
       - INSTANTON_DOMAIN=${INSTANTON_DOMAIN:-instanton.tech}
       - INSTANTON_LOG_LEVEL=${INSTANTON_LOG_LEVEL:-info}
-      # Timeout settings for large file uploads (1GB+)
-      # Set to 0 for indefinite (recommended for streaming/large uploads)
       - INSTANTON_REQUEST_TIMEOUT=${INSTANTON_REQUEST_TIMEOUT:-0}
       - INSTANTON_WS_RECEIVE_TIMEOUT=${INSTANTON_WS_RECEIVE_TIMEOUT:-3600}
       - INSTANTON_IDLE_TIMEOUT=${INSTANTON_IDLE_TIMEOUT:-3600}
-      # Size limits for large file uploads (2GB default)
       - INSTANTON_WS_MAX_SIZE=${INSTANTON_WS_MAX_SIZE:-2147483648}
       - INSTANTON_HTTP_MAX_BODY_SIZE=${INSTANTON_HTTP_MAX_BODY_SIZE:-2147483648}
       # OAuth/OIDC Configuration (optional - for self-hosted authentication)
