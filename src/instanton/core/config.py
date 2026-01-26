@@ -368,21 +368,21 @@ class PerformanceConfig(BaseSettings):
     )
 
     ws_max_size: int = Field(
-        default=128 * 1024 * 1024,
-        description="WebSocket maximum message size (bytes). Default 128MB.",
+        default=2 * 1024 * 1024 * 1024,
+        description="WebSocket maximum message size (bytes). Default 2GB.",
     )
     ws_read_buffer: int = Field(
-        default=16 * 1024 * 1024,
-        description="WebSocket read buffer size (bytes). Default 16MB.",
+        default=64 * 1024 * 1024,
+        description="WebSocket read buffer size (bytes). Default 64MB.",
     )
     ws_write_buffer: int = Field(
-        default=16 * 1024 * 1024,
-        description="WebSocket write buffer size (bytes). Default 16MB.",
+        default=64 * 1024 * 1024,
+        description="WebSocket write buffer size (bytes). Default 64MB.",
     )
 
     http_max_body_size: int = Field(
-        default=1024 * 1024 * 1024,
-        description="Maximum HTTP body size (bytes). Default 1GB.",
+        default=2 * 1024 * 1024 * 1024,
+        description="Maximum HTTP body size (bytes). Default 2GB.",
     )
 
     stream_request_threshold: int = Field(

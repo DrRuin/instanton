@@ -503,9 +503,8 @@ def encode_message(
     else:
         compression = CompressionType.NONE
 
-    max_size = get_max_message_size()
-    if len(payload) > max_size:
-        raise ValueError(f"Message too large: {len(payload)} bytes (max: {max_size})")
+    # No size limit - like Outray, we allow any size
+    # WebSocket layer handles the actual transmission limits
 
     frame = bytearray()
     frame.extend(MAGIC)
