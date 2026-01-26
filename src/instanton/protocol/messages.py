@@ -242,11 +242,7 @@ class HttpRequest(BaseModel):
 
 
 class HttpRequestStream(BaseModel):
-    """HTTP request with streamed body - headers sent first, body follows as chunks.
-
-    Used for large file uploads to avoid buffering entire body in memory.
-    Flow: HttpRequestStream → ChunkData* → ChunkEnd
-    """
+    """HTTP request with streamed body."""
 
     type: Literal["http_request_stream"] = "http_request_stream"
     request_id: UUID = Field(default_factory=uuid4)
@@ -254,7 +250,7 @@ class HttpRequestStream(BaseModel):
     method: str
     path: str
     headers: dict[str, str] = Field(default_factory=dict)
-    content_length: int | None = None  # Total body size if known
+    content_length: int | None = None
 
 
 class HttpResponse(BaseModel):
@@ -451,11 +447,11 @@ def _serialize_for_msgpack(data: Any) -> Any:
 
 
 def _should_skip_compression(msg: BaseModel, payload_size: int) -> bool:
-    """Check if compression should be skipped for this message."""
+    """Check if compression should be skipped."""
     if not is_compression_enabled():
         return True
 
-    if payload_size > 100 * 1024:
+    if payload_size > 64 * 1024:
         return True
 
     msg_type = getattr(msg, "type", "")

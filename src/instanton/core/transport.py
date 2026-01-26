@@ -334,8 +334,6 @@ class WebSocketTransport(Transport):
                     close_timeout=timeouts.ws_close_timeout,
                     open_timeout=self._connect_timeout,
                     max_size=perf.ws_max_size,
-                    read_limit=perf.ws_read_buffer,
-                    write_limit=perf.ws_write_buffer,
                 ),
                 timeout=self._connect_timeout,
             )

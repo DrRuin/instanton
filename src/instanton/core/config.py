@@ -387,16 +387,16 @@ class PerformanceConfig(BaseSettings):
 
     # Streaming thresholds for large file transfers
     stream_request_threshold: int = Field(
-        default=10 * 1024 * 1024,
-        description="Request body size threshold to use streaming (bytes). Default 10MB.",
+        default=5 * 1024 * 1024,
+        description="Request body size threshold to use streaming (bytes). Default 5MB.",
     )
     stream_response_threshold: int = Field(
-        default=10 * 1024 * 1024,
-        description="Response body size threshold to use streaming (bytes). Default 10MB.",
+        default=5 * 1024 * 1024,
+        description="Response body size threshold to use streaming (bytes). Default 5MB.",
     )
     stream_chunk_size: int = Field(
-        default=1024 * 1024,
-        description="Chunk size for streaming large files (bytes). Default 1MB.",
+        default=4 * 1024 * 1024,
+        description="Chunk size for streaming large files (bytes). Default 4MB.",
     )
 
     def get_skip_compression_types(self) -> set[str]:

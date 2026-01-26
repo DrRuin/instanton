@@ -790,7 +790,6 @@ class TunnelClient:
                             await self._stream_sse_response(request, resp)
                             return
 
-                        # Check if response is large enough to warrant streaming
                         perf_config = get_config().performance
                         content_length_str = resp.headers.get("content-length", "0")
                         try:
@@ -798,7 +797,6 @@ class TunnelClient:
                         except ValueError:
                             content_length = 0
 
-                        # Stream large responses to avoid memory bloat
                         if (
                             content_length > perf_config.stream_response_threshold
                             and self._transport
@@ -985,11 +983,7 @@ class TunnelClient:
     async def _stream_large_response(
         self, request: HttpRequest, resp: httpx.Response, content_length: int
     ) -> None:
-        """Stream a large response directly without buffering the entire body.
-
-        For large file downloads, we stream chunks as we receive them to avoid
-        consuming excessive memory. Uses ChunkStart/ChunkData/ChunkEnd protocol.
-        """
+        """Stream large response without buffering."""
         from uuid import uuid4
 
         stream_id = uuid4()
@@ -1050,11 +1044,7 @@ class TunnelClient:
         self._requests_proxied += 1
 
     async def _handle_http_request_stream(self, stream_request: HttpRequestStream) -> None:
-        """Handle start of streaming HTTP request (large file upload).
-
-        Stores the request metadata and prepares to accumulate body chunks.
-        The actual forwarding happens when ChunkEnd is received.
-        """
+        """Handle streaming HTTP request start."""
         logger.debug(
             "Starting request stream",
             request_id=str(stream_request.request_id),
@@ -1063,23 +1053,16 @@ class TunnelClient:
             path=stream_request.path,
             content_length=stream_request.content_length,
         )
-        # Store the stream metadata with empty chunks list
         self._pending_request_streams[stream_request.stream_id] = (stream_request, [])
 
     async def _complete_request_stream(self, chunk_end: ChunkEnd) -> None:
-        """Complete a streaming HTTP request and forward to local service.
-
-        Called when all body chunks have been received. Assembles the body,
-        forwards to local service, and sends the response back.
-        """
+        """Complete streaming request and forward to local service."""
         stream_id = chunk_end.stream_id
         if stream_id not in self._pending_request_streams:
             logger.warning("Unknown request stream completed", stream_id=str(stream_id))
             return
 
         stream_request, chunks = self._pending_request_streams.pop(stream_id)
-
-        # Assemble the body from chunks
         body = b"".join(chunks)
 
         logger.debug(
@@ -1090,7 +1073,6 @@ class TunnelClient:
             body_size=len(body),
         )
 
-        # Create an HttpRequest from the stream data and forward it
         request = HttpRequest(
             request_id=stream_request.request_id,
             method=stream_request.method,

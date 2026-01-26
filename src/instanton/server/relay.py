@@ -1508,7 +1508,6 @@ class RelayServer:
 
         request_id = uuid4()
 
-        # Detect gRPC and WebSocket before reading body
         request_content_type = request.headers.get("Content-Type", "").lower()
         is_grpc_request = (
             "application/grpc" in request_content_type
@@ -1516,20 +1515,17 @@ class RelayServer:
             or "application/grpc-web" in request_content_type
         )
 
-        # Check if we should use streaming for large uploads
         content_length_str = request.headers.get("Content-Length", "0")
         try:
             content_length = int(content_length_str)
         except ValueError:
             content_length = 0
 
-        # Get streaming config
         from instanton.core.config import get_config
         perf_config = get_config().performance
         stream_threshold = perf_config.stream_request_threshold
         stream_chunk_size = perf_config.stream_chunk_size
 
-        # Determine if we should stream this request
         use_streaming = content_length > stream_threshold
 
         headers = {}
@@ -1576,11 +1572,9 @@ class RelayServer:
 
         try:
             if use_streaming:
-                # Stream large request body in chunks to avoid memory bloat
                 stream_id = uuid4()
                 total_bytes_sent = 0
 
-                # Send request headers first (no body)
                 stream_request = HttpRequestStream(
                     request_id=request_id,
                     stream_id=stream_id,
@@ -1593,7 +1587,6 @@ class RelayServer:
                 await tunnel.websocket.send_bytes(msg_bytes)
                 tunnel.bytes_sent += len(msg_bytes)
 
-                # Stream body chunks
                 sequence = 0
                 async for chunk in request.content.iter_chunked(stream_chunk_size):
                     total_bytes_sent += len(chunk)
@@ -1610,7 +1603,6 @@ class RelayServer:
                     tunnel.bytes_sent += len(msg_bytes)
                     sequence += 1
 
-                # Send end marker
                 end_msg = ChunkEnd(
                     stream_id=stream_id,
                     request_id=request_id,
@@ -1620,7 +1612,6 @@ class RelayServer:
                 await tunnel.websocket.send_bytes(msg_bytes)
                 tunnel.bytes_sent += len(msg_bytes)
 
-                # Track bytes
                 if is_grpc_request:
                     BYTES_TRANSFERRED.labels(direction="in", protocol="grpc").inc(total_bytes_sent)
                 else:
@@ -1633,10 +1624,8 @@ class RelayServer:
                     chunks=sequence,
                 )
             else:
-                # Small request - read all at once (original behavior)
                 body = await request.read()
 
-                # Track incoming bytes with correct protocol
                 if is_grpc_request:
                     BYTES_TRANSFERRED.labels(direction="in", protocol="grpc").inc(len(body))
                 else:
