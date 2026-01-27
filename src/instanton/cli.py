@@ -29,7 +29,8 @@ BANNER = """
 
 @click.group(invoke_without_command=True)
 @click.option(
-    "--config", "-c",
+    "--config",
+    "-c",
     "config_file",
     type=click.Path(exists=True),
     help="Path to YAML or TOML config file",
@@ -145,6 +146,7 @@ def main(
     file_config: dict = {}
     if config_file:
         from instanton.core.config import flatten_config, load_config_from_file
+
         try:
             raw_config = load_config_from_file(config_file)
             file_config = flatten_config(raw_config)
@@ -171,6 +173,7 @@ def main(
         idle_timeout = float(file_config["timeouts_idle"])
     if "performance_compression_level" in file_config or "performance_chunk_size" in file_config:
         import os
+
         if "performance_compression_level" in file_config:
             os.environ["INSTANTON_COMPRESSION_LEVEL"] = str(
                 file_config["performance_compression_level"]
@@ -525,7 +528,14 @@ def version():
 @click.option("--auth-token", envvar="INSTANTON_AUTH_TOKEN", help="Authentication token")
 @click.option("--proxy-user", envvar="INSTANTON_PROXY_USER", help="Proxy auth username")
 @click.option("--proxy-pass", envvar="INSTANTON_PROXY_PASS", help="Proxy auth password")
-def http(port: int, subdomain: str | None, server: str, auth_token: str | None, proxy_user: str | None, proxy_pass: str | None):
+def http(
+    port: int,
+    subdomain: str | None,
+    server: str,
+    auth_token: str | None,
+    proxy_user: str | None,
+    proxy_pass: str | None,
+):
     """Start an HTTP tunnel (shorthand command).
 
     Examples:
@@ -536,8 +546,15 @@ def http(port: int, subdomain: str | None, server: str, auth_token: str | None, 
     """
     asyncio.run(
         start_tunnel(
-            port, subdomain, server, verbose=False, auth_token=auth_token, inspect=False, quic=True,
-            proxy_user=proxy_user, proxy_pass=proxy_pass,
+            port,
+            subdomain,
+            server,
+            verbose=False,
+            auth_token=auth_token,
+            inspect=False,
+            quic=True,
+            proxy_user=proxy_user,
+            proxy_pass=proxy_pass,
         )
     )
 
@@ -549,7 +566,14 @@ def http(port: int, subdomain: str | None, server: str, auth_token: str | None, 
 @click.option("--quic/--no-quic", default=False, help="Use QUIC transport")
 @click.option("--proxy-user", envvar="INSTANTON_PROXY_USER", help="Proxy auth username")
 @click.option("--proxy-pass", envvar="INSTANTON_PROXY_PASS", help="Proxy auth password")
-def tcp(port: int, remote_port: int | None, server: str, quic: bool, proxy_user: str | None, proxy_pass: str | None):
+def tcp(
+    port: int,
+    remote_port: int | None,
+    server: str,
+    quic: bool,
+    proxy_user: str | None,
+    proxy_pass: str | None,
+):
     """Start a TCP tunnel for non-HTTP protocols.
 
     Examples:
@@ -668,8 +692,15 @@ def udp(
     """
     asyncio.run(
         start_udp_tunnel_cli(
-            port, remote_port, server, quic, keepalive, idle_timeout, max_datagram_size,
-            proxy_user, proxy_pass,
+            port,
+            remote_port,
+            server,
+            quic,
+            keepalive,
+            idle_timeout,
+            max_datagram_size,
+            proxy_user,
+            proxy_pass,
         )
     )
 
@@ -765,7 +796,11 @@ def config():
 
 @config.command("show")
 @click.option("--json", "json_output", is_flag=True, help="Output as JSON")
-@click.option("--section", "-s", help="Show only specific section (performance, timeouts, reconnect, resources)")
+@click.option(
+    "--section",
+    "-s",
+    help="Show only specific section (performance, timeouts, reconnect, resources)",
+)
 def config_show(json_output: bool, section: str | None):
     """Show current configuration settings.
 
@@ -787,6 +822,7 @@ def config_show(json_output: bool, section: str | None):
 
     if json_output:
         import json
+
         console.print(json.dumps(display, indent=2))
         return
 
@@ -809,7 +845,9 @@ def config_show(json_output: bool, section: str | None):
 
 
 @config.command("export")
-@click.option("--shell", type=click.Choice(["bash", "powershell", "cmd"]), default="bash", help="Shell format")
+@click.option(
+    "--shell", type=click.Choice(["bash", "powershell", "cmd"]), default="bash", help="Shell format"
+)
 def config_export(shell: str):
     """Export current configuration as environment variables.
 
@@ -833,7 +871,7 @@ def config_export(shell: str):
         elif shell == "powershell":
             console.print(f'$env:{key}="{value_str}"')
         elif shell == "cmd":
-            console.print(f'set {key}={value_str}')
+            console.print(f"set {key}={value_str}")
 
 
 @config.command("validate")
@@ -856,7 +894,9 @@ def config_validate():
         if perf.chunk_size < 1024:
             warnings.append(f"chunk_size ({perf.chunk_size}) is very small, may impact performance")
         if perf.chunk_size > 10 * 1024 * 1024:
-            warnings.append(f"chunk_size ({perf.chunk_size}) is very large, may cause memory issues")
+            warnings.append(
+                f"chunk_size ({perf.chunk_size}) is very large, may cause memory issues"
+            )
         if perf.compression_level < 1 or perf.compression_level > 19:
             errors.append(f"compression_level ({perf.compression_level}) must be between 1 and 19")
 
@@ -864,13 +904,19 @@ def config_validate():
         if timeouts.connect_timeout < 1:
             warnings.append(f"connect_timeout ({timeouts.connect_timeout}s) is very short")
         if timeouts.ping_interval < 5:
-            warnings.append(f"ping_interval ({timeouts.ping_interval}s) is very short, may cause overhead")
+            warnings.append(
+                f"ping_interval ({timeouts.ping_interval}s) is very short, may cause overhead"
+            )
 
         resources = cfg.resources
         if resources.tcp_port_min >= resources.tcp_port_max:
-            errors.append(f"tcp_port_min ({resources.tcp_port_min}) must be less than tcp_port_max ({resources.tcp_port_max})")
+            errors.append(
+                f"tcp_port_min ({resources.tcp_port_min}) must be less than tcp_port_max ({resources.tcp_port_max})"
+            )
         if resources.udp_port_min >= resources.udp_port_max:
-            errors.append(f"udp_port_min ({resources.udp_port_min}) must be less than udp_port_max ({resources.udp_port_max})")
+            errors.append(
+                f"udp_port_min ({resources.udp_port_min}) must be less than udp_port_max ({resources.udp_port_max})"
+            )
 
         if errors:
             console.print("[red bold]Configuration Errors:[/red bold]")

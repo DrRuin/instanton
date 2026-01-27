@@ -65,6 +65,7 @@ dependencies = [
     # Utilities
     "anyio>=4.12.1",
     "httpx>=0.28.1",
+    "h2>=4.0.0",
     "structlog>=25.5.0",
     "psutil>=5.9.0",
 

@@ -203,9 +203,7 @@ class DomainManager:
             else:
                 status = DomainStatus.CERTIFICATE_PENDING
         else:
-            result = await self.verifier.verify_domain(
-                domain, registration.verification_token
-            )
+            result = await self.verifier.verify_domain(domain, registration.verification_token)
             if result.status == VerificationStatus.CNAME_VERIFIED:
                 status = DomainStatus.CNAME_ONLY
             else:

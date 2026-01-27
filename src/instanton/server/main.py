@@ -259,9 +259,14 @@ def main(
     console.print(f"Control: {control_bind}", style="dim")
     timeout_str = f"{timeout_value}s" if timeout_value else "indefinite"
     console.print(f"Request timeout: {timeout_str}", style="dim")
-    console.print(f"Per-IP limits: {max_tunnels_per_ip} tunnels, {tunnel_rate_limit}/min creation rate", style="dim")
+    console.print(
+        f"Per-IP limits: {max_tunnels_per_ip} tunnels, {tunnel_rate_limit}/min creation rate",
+        style="dim",
+    )
     if rate_limit:
-        console.print(f"Request rate limit: {rate_limit_rps} req/s, burst: {rate_limit_burst}", style="dim")
+        console.print(
+            f"Request rate limit: {rate_limit_rps} req/s, burst: {rate_limit_burst}", style="dim"
+        )
     if ip_restrict_enabled:
         console.print(f"IP restrictions: {len(ip_allow)} allow, {len(ip_deny)} deny", style="dim")
     if auth_enabled:
@@ -269,12 +274,20 @@ def main(
     if dashboard_enabled:
         console.print(f"Dashboard: enabled at /dashboard (user: {dashboard_user})", style="green")
     else:
-        console.print("Dashboard: disabled (set --dashboard-user and --dashboard-password to enable)", style="dim")
+        console.print(
+            "Dashboard: disabled (set --dashboard-user and --dashboard-password to enable)",
+            style="dim",
+        )
     if oauth_enabled:
         domains_str = ", ".join(oauth_allowed_domain) if oauth_allowed_domain else "all"
-        console.print(f"OAuth: enabled (provider: {oauth_provider}, domains: {domains_str})", style="green")
+        console.print(
+            f"OAuth: enabled (provider: {oauth_provider}, domains: {domains_str})", style="green"
+        )
     else:
-        console.print("OAuth: disabled (set --oauth-provider, --oauth-client-id, --oauth-client-secret to enable)", style="dim")
+        console.print(
+            "OAuth: disabled (set --oauth-provider, --oauth-client-id, --oauth-client-secret to enable)",
+            style="dim",
+        )
 
     asyncio.run(run_server(config))
 

@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import random
+import socket
 import time
 import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 import structlog
@@ -30,6 +31,7 @@ from instanton.core.exceptions import (
     TunnelCreationError,
     format_error_for_user,
 )
+from instanton.core.pool import TransportPool
 from instanton.core.transport import QuicTransport, Transport, WebSocketTransport
 from instanton.protocol.messages import (
     ChunkAssembler,
@@ -251,6 +253,11 @@ class TunnelClient:
         self._bytes_sent = 0
         self._bytes_received = 0
 
+        # Connection pool support
+        self._using_pool = False
+        self._pool: TransportPool | None = None
+        self._message_queue: asyncio.Queue[bytes] | None = None
+
     @property
     def state(self) -> ConnectionState:
         """Get current connection state."""
@@ -279,7 +286,7 @@ class TunnelClient:
     @property
     def stats(self) -> dict[str, Any]:
         """Get connection statistics."""
-        return {
+        stats = {
             "state": self._state.value,
             "tunnel_id": str(self._tunnel_id) if self._tunnel_id else None,
             "url": self._url,
@@ -289,7 +296,11 @@ class TunnelClient:
             "compression": self._compression.name,
             "streaming_enabled": self._streaming_enabled,
             "reconnect_attempts": self._reconnect_attempt,
+            "using_pool": self._using_pool,
         }
+        if self._using_pool and self._pool:
+            stats["pool_stats"] = self._pool.get_stats()
+        return stats
 
     def add_state_hook(self, hook: Callable[[ConnectionState], None]) -> None:
         """Add a hook to be called on state changes."""
@@ -316,14 +327,35 @@ class TunnelClient:
         """Build Proxy-Authorization header if credentials are configured."""
         if self._proxy_username and self._proxy_password:
             import base64
+
             credentials = f"{self._proxy_username}:{self._proxy_password}"
             encoded = base64.b64encode(credentials.encode()).decode()
             return {"Proxy-Authorization": f"Basic {encoded}"}
         return {}
 
     async def _create_transport(self) -> Transport:
-        """Create transport with appropriate timeout settings for global users."""
         extra_headers = self._build_auth_header()
+        pool_config = get_config().pool
+
+        if self.use_quic and pool_config.enabled:
+            self._pool = await TransportPool.get_pool(self.server_addr)
+
+            async def create_quic_transport() -> QuicTransport:
+                return QuicTransport(
+                    auto_reconnect=self.reconnect_config.enabled,
+                    max_reconnect_attempts=self.reconnect_config.max_attempts,
+                    reconnect_delay=self.reconnect_config.base_delay,
+                    max_reconnect_delay=self.reconnect_config.max_delay,
+                    extra_headers=extra_headers,
+                )
+
+            transport, queue = await self._pool.acquire(
+                self._tunnel_id or uuid4(),
+                create_quic_transport,
+            )
+            self._message_queue = queue
+            self._using_pool = True
+            return transport
 
         if self.use_quic:
             return QuicTransport(
@@ -345,10 +377,7 @@ class TunnelClient:
         )
 
     async def _create_http_client(self) -> httpx.AsyncClient:
-        """Create HTTP client for proxying requests.
-
-        Supports indefinite timeouts (None) for long-running APIs and streaming.
-        """
+        """Create HTTP client for proxying requests."""
         timeout = httpx.Timeout(
             connect=self.proxy_config.connect_timeout,
             read=self.proxy_config.read_timeout,
@@ -359,10 +388,16 @@ class TunnelClient:
             max_connections=self.proxy_config.max_connections,
             max_keepalive_connections=self.proxy_config.max_keepalive,
         )
+        transport = httpx.AsyncHTTPTransport(
+            retries=0,
+            socket_options=[(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)],
+        )
         return httpx.AsyncClient(
             timeout=timeout,
             limits=limits,
             follow_redirects=False,
+            http2=True,
+            transport=transport,
         )
 
     async def connect(self) -> str:
@@ -536,7 +571,14 @@ class TunnelClient:
 
         try:
             while self._running and self._transport and self._transport.is_connected():
-                data = await self._transport.recv()
+                if self._using_pool and self._message_queue:
+                    try:
+                        data = await asyncio.wait_for(self._message_queue.get(), timeout=30.0)
+                    except TimeoutError:
+                        continue
+                else:
+                    data = await self._transport.recv()
+
                 if not data:
                     logger.warning("Connection lost")
                     break
@@ -919,9 +961,7 @@ class TunnelClient:
             total_chunks=len(chunks),
         )
 
-    async def _stream_sse_response(
-        self, request: HttpRequest, resp: httpx.Response
-    ) -> None:
+    async def _stream_sse_response(self, request: HttpRequest, resp: httpx.Response) -> None:
         """Stream SSE response chunks immediately without buffering.
 
         For Server-Sent Events (SSE), we need to forward each chunk
@@ -1148,9 +1188,7 @@ class TunnelClient:
                 path=ws_upgrade.path,
             )
 
-            asyncio.create_task(
-                self._forward_ws_from_local(ws_upgrade.tunnel_id, ws)
-            )
+            asyncio.create_task(self._forward_ws_from_local(ws_upgrade.tunnel_id, ws))
 
         except Exception as e:
             logger.error(
@@ -1259,7 +1297,14 @@ class TunnelClient:
                 await self._http_client.aclose()
             self._http_client = None
 
-        if self._transport:
+        if self._using_pool and self._pool and self._tunnel_id:
+            with contextlib.suppress(Exception):
+                await self._pool.release(self._tunnel_id)
+            self._pool = None
+            self._message_queue = None
+            self._using_pool = False
+            self._transport = None
+        elif self._transport:
             with contextlib.suppress(Exception):
                 await self._transport.close()
             self._transport = None

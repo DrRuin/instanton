@@ -162,8 +162,8 @@ class OAuthAuthenticator:
             # Initialize JWKS client for ID token validation
             jwks_uri = self._provider_metadata.get("jwks_uri")
             if jwks_uri:
-                from authlib.jose import JsonWebKey
                 import httpx
+                from authlib.jose import JsonWebKey
 
                 async with httpx.AsyncClient() as http_client:
                     jwks_response = await http_client.get(jwks_uri)
@@ -292,9 +292,11 @@ class OAuthAuthenticator:
 
         # Generate PKCE parameters (RFC 7636)
         code_verifier = secrets.token_urlsafe(64)
-        code_challenge = base64.urlsafe_b64encode(
-            hashlib.sha256(code_verifier.encode()).digest()
-        ).decode().rstrip("=")
+        code_challenge = (
+            base64.urlsafe_b64encode(hashlib.sha256(code_verifier.encode()).digest())
+            .decode()
+            .rstrip("=")
+        )
 
         # Generate state parameter for CSRF protection
         state = secrets.token_urlsafe(32)
@@ -550,9 +552,7 @@ class OAuthAuthenticator:
                 # Validate nonce to prevent replay attacks
                 if expected_nonce:
                     token_nonce = claims.get("nonce")
-                    if not token_nonce or not secrets.compare_digest(
-                        token_nonce, expected_nonce
-                    ):
+                    if not token_nonce or not secrets.compare_digest(token_nonce, expected_nonce):
                         logger.warning("Nonce mismatch in ID token")
                         raise ValueError("Invalid nonce in ID token")
 
@@ -663,10 +663,7 @@ class OAuthAuthenticator:
 
     def _cleanup_pending_states(self) -> None:
         """Remove expired pending authentication states."""
-        expired = [
-            state for state, pending in self._pending_states.items()
-            if pending.is_expired
-        ]
+        expired = [state for state, pending in self._pending_states.items() if pending.is_expired]
         for state in expired:
             del self._pending_states[state]
 

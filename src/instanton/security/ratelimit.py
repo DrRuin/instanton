@@ -202,9 +202,7 @@ class RateLimiter:
                 allowed=allowed,
                 remaining=remaining,
                 reset_after=reset_after,
-                limit=int(
-                    self.config.requests_per_second * self.config.window_seconds
-                ),
+                limit=int(self.config.requests_per_second * self.config.window_seconds),
             )
 
     async def check(self, key: str, scope: str = "ip") -> RateLimitResult:
@@ -214,9 +212,7 @@ class RateLimiter:
             scoped_key = f"{scope}:{key}"
 
             if scoped_key not in self._counters:
-                limit = int(
-                    self.config.requests_per_second * self.config.window_seconds
-                )
+                limit = int(self.config.requests_per_second * self.config.window_seconds)
                 return RateLimitResult(
                     allowed=True,
                     remaining=limit,

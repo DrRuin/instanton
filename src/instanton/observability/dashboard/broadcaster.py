@@ -106,9 +106,7 @@ class DashboardBroadcaster:
         self._queues[client_id] = asyncio.Queue(maxsize=10)
 
         # Start sender task for this client
-        self._sender_tasks[client_id] = asyncio.create_task(
-            self._client_sender(ws, client_id)
-        )
+        self._sender_tasks[client_id] = asyncio.create_task(self._client_sender(ws, client_id))
 
         # Send initial state immediately
         await self._send_initial_state(ws)
@@ -144,11 +142,13 @@ class DashboardBroadcaster:
             history = self._collector.get_history()
             tunnels = self._collector.get_tunnel_list()
 
-            init_message = json.dumps({
-                "type": "init",
-                "history": history,
-                "tunnels": tunnels,
-            })
+            init_message = json.dumps(
+                {
+                    "type": "init",
+                    "history": history,
+                    "tunnels": tunnels,
+                }
+            )
 
             await ws.send_str(init_message)
         except Exception as e:
@@ -169,10 +169,12 @@ class DashboardBroadcaster:
                     continue
 
                 # Prepare update message (encode once)
-                update_message = json.dumps({
-                    "type": "update",
-                    "snapshot": snapshot.to_dict(),
-                })
+                update_message = json.dumps(
+                    {
+                        "type": "update",
+                        "snapshot": snapshot.to_dict(),
+                    }
+                )
 
                 # Queue message for all clients
                 await self._queue_broadcast(update_message)
@@ -180,10 +182,12 @@ class DashboardBroadcaster:
                 # Periodically send tunnel updates (every 5 seconds)
                 if int(snapshot.timestamp) % 5 == 0:
                     tunnels = self._collector.get_tunnel_list()
-                    tunnel_message = json.dumps({
-                        "type": "tunnels",
-                        "tunnels": tunnels,
-                    })
+                    tunnel_message = json.dumps(
+                        {
+                            "type": "tunnels",
+                            "tunnels": tunnels,
+                        }
+                    )
                     await self._queue_broadcast(tunnel_message)
 
             except asyncio.CancelledError:
@@ -231,7 +235,7 @@ class DashboardBroadcaster:
                     # Wait for a message with timeout
                     message = await asyncio.wait_for(queue.get(), timeout=30.0)
                     await ws.send_str(message)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # Send ping to keep connection alive
                     continue
                 except ConnectionResetError:
@@ -261,11 +265,13 @@ class DashboardBroadcaster:
                 subdomain = message.get("subdomain")
                 if subdomain:
                     details = self._get_tunnel_details(subdomain)
-                    response = json.dumps({
-                        "type": "tunnel_details",
-                        "subdomain": subdomain,
-                        "details": details,
-                    })
+                    response = json.dumps(
+                        {
+                            "type": "tunnel_details",
+                            "subdomain": subdomain,
+                            "details": details,
+                        }
+                    )
                     await ws.send_str(response)
 
         except json.JSONDecodeError:

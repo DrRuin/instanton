@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import socket
 import ssl
 import time
 from abc import ABC, abstractmethod
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
@@ -28,9 +30,10 @@ _dns_cache: dict[str, tuple[str, float]] = {}
 SLEEP_DETECTION_THRESHOLD = 5.0
 
 
-def _get_config() -> "InstantonConfig":
+def _get_config() -> InstantonConfig:
     """Get config (lazy import to avoid circular imports)."""
     from instanton.core.config import get_config
+
     return get_config()
 
 
@@ -100,6 +103,159 @@ def _cleanup_dns_cache() -> None:
         _dns_cache.pop(k, None)
 
 
+class SessionTicketStore:
+    def __init__(self, max_tickets: int = 100, ttl_seconds: int = 86400) -> None:
+        self._tickets: dict[str, tuple[bytes, float]] = {}
+        self._max_tickets = max_tickets
+        self._ttl_seconds = ttl_seconds
+        self._access_order: list[str] = []
+
+    def get(self, host: str) -> bytes | None:
+        if host not in self._tickets:
+            return None
+
+        ticket, stored_time = self._tickets[host]
+        if time.time() - stored_time > self._ttl_seconds:
+            self._tickets.pop(host, None)
+            if host in self._access_order:
+                self._access_order.remove(host)
+            return None
+
+        if host in self._access_order:
+            self._access_order.remove(host)
+        self._access_order.append(host)
+        return ticket
+
+    def store(self, host: str, ticket: bytes) -> None:
+        while len(self._tickets) >= self._max_tickets and self._access_order:
+            oldest = self._access_order.pop(0)
+            self._tickets.pop(oldest, None)
+
+        self._tickets[host] = (ticket, time.time())
+        if host in self._access_order:
+            self._access_order.remove(host)
+        self._access_order.append(host)
+
+    def remove(self, host: str) -> None:
+        self._tickets.pop(host, None)
+        if host in self._access_order:
+            self._access_order.remove(host)
+
+    def clear(self) -> None:
+        self._tickets.clear()
+        self._access_order.clear()
+
+    def save_to_file(self, path: Path) -> None:
+        import base64
+
+        data = {
+            host: {
+                "ticket": base64.b64encode(ticket).decode("utf-8"),
+                "stored_time": stored_time,
+            }
+            for host, (ticket, stored_time) in self._tickets.items()
+        }
+        try:
+            path.write_text(json.dumps(data, indent=2))
+        except Exception:
+            pass
+
+    def load_from_file(self, path: Path) -> None:
+        import base64
+
+        if not path.exists():
+            return
+        try:
+            data = json.loads(path.read_text())
+            now = time.time()
+            for host, info in data.items():
+                stored_time = info.get("stored_time", 0)
+                if now - stored_time > self._ttl_seconds:
+                    continue
+                ticket = base64.b64decode(info["ticket"])
+                self._tickets[host] = (ticket, stored_time)
+                self._access_order.append(host)
+        except Exception:
+            pass
+
+
+_session_ticket_store: SessionTicketStore | None = None
+
+
+def get_session_ticket_store() -> SessionTicketStore:
+    global _session_ticket_store
+    if _session_ticket_store is None:
+        config = _get_config().quic
+        _session_ticket_store = SessionTicketStore(
+            max_tickets=config.max_session_tickets,
+            ttl_seconds=config.session_ticket_ttl,
+        )
+        if config.session_ticket_path:
+            _session_ticket_store.load_from_file(Path(config.session_ticket_path))
+    return _session_ticket_store
+
+
+class AdaptiveBuffer:
+    def __init__(
+        self,
+        min_size: int = 1024,
+        max_size: int = 65536,
+        target_latency_ms: float = 50.0,
+        low_latency_threshold_ms: float = 10.0,
+        sample_window: int = 100,
+    ) -> None:
+        self._min_size = min_size
+        self._max_size = max_size
+        self._target_latency_ms = target_latency_ms
+        self._low_latency_threshold_ms = low_latency_threshold_ms
+        self._current_size = (min_size + max_size) // 2
+        self._latency_samples: deque[float] = deque(maxlen=sample_window)
+        self._last_adjustment = time.monotonic()
+        self._adjustment_interval = 1.0
+
+    @property
+    def size(self) -> int:
+        return self._current_size
+
+    def record_latency(self, latency_ms: float) -> None:
+        self._latency_samples.append(latency_ms)
+        self._maybe_adjust()
+
+    def _maybe_adjust(self) -> None:
+        now = time.monotonic()
+        if now - self._last_adjustment < self._adjustment_interval:
+            return
+        if len(self._latency_samples) < 10:
+            return
+        self._last_adjustment = now
+        avg_latency = sum(self._latency_samples) / len(self._latency_samples)
+
+        if avg_latency > self._target_latency_ms:
+            ratio = avg_latency / self._target_latency_ms
+            reduction_factor = min(0.5, (ratio - 1) * 0.25)
+            self._current_size = max(
+                self._min_size,
+                int(self._current_size * (1 - reduction_factor)),
+            )
+        elif avg_latency < self._low_latency_threshold_ms:
+            self._current_size = min(
+                self._max_size,
+                int(self._current_size * 1.25),
+            )
+
+    def get_stats(self) -> dict[str, Any]:
+        latencies = list(self._latency_samples)
+        return {
+            "current_size": self._current_size,
+            "min_size": self._min_size,
+            "max_size": self._max_size,
+            "sample_count": len(latencies),
+            "avg_latency_ms": round(sum(latencies) / len(latencies), 2) if latencies else 0,
+            "min_latency_ms": round(min(latencies), 2) if latencies else 0,
+            "max_latency_ms": round(max(latencies), 2) if latencies else 0,
+        }
+
+
 class ConnectionState(Enum):
     """Connection state enumeration."""
 
@@ -121,6 +277,7 @@ class TransportStats:
     reconnect_count: int = 0
     last_ping_latency: float = 0.0
     connection_start_time: float = 0.0
+    used_0rtt: bool = False  # Whether 0-RTT was used for this connection
 
     @property
     def uptime_seconds(self) -> float:
@@ -255,6 +412,19 @@ class WebSocketTransport(Transport):
 
         self._last_sleep_check = time.monotonic()
         self._sleep_detected = False
+
+        # Adaptive buffer for latency-based sizing
+        buffer_config = _get_config().adaptive_buffer
+        if buffer_config.enabled:
+            self._adaptive_buffer: AdaptiveBuffer | None = AdaptiveBuffer(
+                min_size=buffer_config.min_size,
+                max_size=buffer_config.max_size,
+                target_latency_ms=buffer_config.target_latency_ms,
+                low_latency_threshold_ms=buffer_config.low_latency_threshold_ms,
+                sample_window=buffer_config.sample_window,
+            )
+        else:
+            self._adaptive_buffer = None
 
     def _track_task(self, coro: Any) -> asyncio.Task[Any]:
         """Create and track a background task for proper cleanup."""
@@ -462,7 +632,7 @@ class WebSocketTransport(Transport):
             await self._handle_disconnect()
 
     async def _heartbeat_loop(self) -> None:
-        """Send periodic heartbeat pings."""
+        """Send periodic heartbeat pings and feed latency to adaptive buffer."""
         while not self._shutdown and self._state == ConnectionState.CONNECTED:
             try:
                 await asyncio.sleep(self._ping_interval)
@@ -476,8 +646,13 @@ class WebSocketTransport(Transport):
                 try:
                     await asyncio.wait_for(pong_waiter, timeout=self._ping_timeout)
                     latency = time.time() - start
+                    latency_ms = latency * 1000
                     self._stats.last_ping_latency = latency
-                    logger.debug("Heartbeat", latency_ms=round(latency * 1000, 2))
+
+                    if self._adaptive_buffer:
+                        self._adaptive_buffer.record_latency(latency_ms)
+
+                    logger.debug("Heartbeat", latency_ms=round(latency_ms, 2))
                 except TimeoutError:
                     logger.warning("Ping timeout, connection may be dead")
                     await self._handle_disconnect()
@@ -706,15 +881,14 @@ class WebSocketTransport(Transport):
         """Get transport statistics."""
         return self._stats
 
+    def get_adaptive_buffer_stats(self) -> dict[str, Any] | None:
+        if self._adaptive_buffer:
+            return self._adaptive_buffer.get_stats()
+        return None
+
 
 @dataclass
 class QuicTransportConfig:
-    """Configuration for QUIC transport connections.
-
-    Optimized defaults for global users connecting from different countries
-    with varying network conditions and latency.
-    """
-
     host: str = "localhost"
     port: int = 4433
     server_name: str | None = None
@@ -729,6 +903,10 @@ class QuicTransportConfig:
     max_reconnect_attempts: int = 15
     reconnect_delay: float = 1.0
     max_reconnect_delay: float = 60.0
+    enable_0rtt: bool = True
+    session_ticket_store: SessionTicketStore | None = None
+    max_datagram_frame_size: int = 65536
+    enable_connection_migration: bool = True
 
 
 class QuicStreamHandler:
@@ -884,16 +1062,6 @@ class QuicClientProtocol:
 
 
 class QuicTransport(Transport):
-    """QUIC transport implementation using aioquic.
-
-    This transport provides:
-    - QUIC connection with TLS 1.3
-    - Multiplexed streams
-    - Connection migration support (QUIC feature)
-    - Automatic reconnection with exponential backoff
-    - Statistics tracking
-    """
-
     def __init__(
         self,
         config: QuicTransportConfig | None = None,
@@ -904,16 +1072,6 @@ class QuicTransport(Transport):
         max_reconnect_delay: float = 60.0,
         extra_headers: dict[str, str] | None = None,
     ) -> None:
-        """Initialize QUIC transport.
-
-        Args:
-            config: QUIC transport configuration.
-            auto_reconnect: Enable automatic reconnection on disconnect.
-            max_reconnect_attempts: Maximum number of reconnection attempts.
-            reconnect_delay: Initial delay between reconnection attempts.
-            max_reconnect_delay: Maximum delay between reconnection attempts.
-            extra_headers: Additional headers (stored for API consistency, not used in QUIC).
-        """
         self._config = config or QuicTransportConfig()
         self._extra_headers = extra_headers or {}
         self._config.auto_reconnect = auto_reconnect
@@ -942,8 +1100,69 @@ class QuicTransport(Transport):
         self._on_disconnect: list[Callable[[], Any]] = []
         self._on_reconnect: list[Callable[[], Any]] = []
 
+        # 0-RTT Session resumption support
+        self._session_ticket_store = self._config.session_ticket_store or get_session_ticket_store()
+        self._pending_session_ticket: bytes | None = None
+        self._used_0rtt = False
+
+        buffer_config = _get_config().adaptive_buffer
+        if buffer_config.enabled:
+            self._adaptive_buffer = AdaptiveBuffer(
+                min_size=buffer_config.min_size,
+                max_size=buffer_config.max_size,
+                target_latency_ms=buffer_config.target_latency_ms,
+                low_latency_threshold_ms=buffer_config.low_latency_threshold_ms,
+                sample_window=buffer_config.sample_window,
+            )
+        else:
+            self._adaptive_buffer = None
+
+        self._multiplexer: Any = None
+        self._network_monitor: Any = None
+        self._migrator: Any = None
+        self._congestion: Any = None
+
+        self._init_phase3_components()
+
+    def _init_phase3_components(self) -> None:
+        config = _get_config()
+
+        if config.congestion.enabled:
+            from instanton.core.congestion import CongestionController
+
+            cc_cfg = config.congestion
+            self._congestion = CongestionController(
+                initial_cwnd=cc_cfg.initial_cwnd,
+                min_cwnd=cc_cfg.min_cwnd,
+                max_cwnd=cc_cfg.max_cwnd,
+                pacing_gain=cc_cfg.pacing_gain,
+                drain_gain=cc_cfg.drain_gain,
+            )
+
+        if config.migration.enabled:
+            from instanton.core.migration import ConnectionMigrator, NetworkMonitor
+
+            mig_cfg = config.migration
+            self._network_monitor = NetworkMonitor(check_interval=mig_cfg.check_interval)
+            self._migrator = ConnectionMigrator(
+                max_migration_time=mig_cfg.max_migration_time,
+                max_retries=mig_cfg.max_retries,
+            )
+            self._network_monitor.on_network_change(self._on_network_change)
+
+    def _on_network_change(self, old_state: Any, new_state: Any) -> Any:
+        if self._migrator and self._quic and self._protocol:
+
+            async def do_migration() -> None:
+                await self._migrator.begin_migration(old_state, new_state)
+                success = await self._migrator.migrate_connection(
+                    self._quic, self._protocol, new_state
+                )
+                await self._migrator.complete_migration(success)
+
+            asyncio.create_task(do_migration())
+
     def on_connect(self, callback: Callable[[], Any]) -> None:
-        """Register a callback for connection events."""
         self._on_connect.append(callback)
 
     def on_disconnect(self, callback: Callable[[], Any]) -> None:
@@ -988,16 +1207,28 @@ class QuicTransport(Transport):
         await self._do_connect(host, port)
 
     async def _do_connect(self, host: str, port: int) -> None:
-        """Perform the actual QUIC connection."""
         from aioquic.asyncio import connect as quic_connect
         from aioquic.asyncio.protocol import QuicConnectionProtocol
         from aioquic.quic.configuration import QuicConfiguration
+
+        host_key = f"{host}:{port}"
+        session_ticket = None
+        if self._config.enable_0rtt:
+            session_ticket_bytes = self._session_ticket_store.get(host_key)
+            if session_ticket_bytes:
+                try:
+                    import pickle
+
+                    session_ticket = pickle.loads(session_ticket_bytes)
+                except Exception:
+                    session_ticket = None
 
         configuration = QuicConfiguration(
             is_client=True,
             alpn_protocols=self._config.alpn_protocols,
             verify_mode=ssl.CERT_REQUIRED if self._config.verify_ssl else ssl.CERT_NONE,
             idle_timeout=self._config.idle_timeout,
+            max_datagram_frame_size=self._config.max_datagram_frame_size,
         )
 
         server_name = self._config.server_name or host
@@ -1016,28 +1247,37 @@ class QuicTransport(Transport):
                 str(self._config.key_path),
             )
 
-        logger.debug(
-            "Connecting via QUIC",
-            host=host,
-            port=port,
-            server_name=server_name,
-            alpn=configuration.alpn_protocols,
-        )
-
         outer_self = self
 
-        class InstantonQuicProtocol(QuicConnectionProtocol):
-            """Custom protocol for handling QUIC events."""
+        def session_ticket_handler(ticket: Any) -> None:
+            try:
+                import pickle
 
+                ticket_bytes = pickle.dumps(ticket)
+                outer_self._session_ticket_store.store(host_key, ticket_bytes)
+                quic_config = _get_config().quic
+                if quic_config.session_ticket_path:
+                    outer_self._session_ticket_store.save_to_file(
+                        Path(quic_config.session_ticket_path)
+                    )
+            except Exception:
+                pass
+
+        configuration.session_ticket_handler = session_ticket_handler
+
+        class InstantonQuicProtocol(QuicConnectionProtocol):
             def quic_event_received(self, event: Any) -> None:
                 outer_self._handle_quic_event(event)
 
         try:
+            connect_start = time.monotonic()
+
             async with quic_connect(
                 host,
                 port,
                 configuration=configuration,
                 create_protocol=InstantonQuicProtocol,
+                session_ticket=session_ticket,  # Enable 0-RTT if we have a ticket
             ) as protocol:
                 self._protocol = protocol
                 self._quic = protocol._quic
@@ -1047,14 +1287,30 @@ class QuicTransport(Transport):
                     timeout=self._config.connection_timeout,
                 )
 
+                connect_time = (time.monotonic() - connect_start) * 1000  # ms
+                self._used_0rtt = session_ticket is not None
+
                 self._state = ConnectionState.CONNECTED
                 self._stats.connection_start_time = time.time()
+                self._stats.used_0rtt = self._used_0rtt
                 self._current_reconnect_attempt = 0
 
                 self._main_stream_id = self._quic.get_next_available_stream_id()
                 self._streams[self._main_stream_id] = QuicStreamHandler(self._main_stream_id)
 
-                logger.debug("QUIC transport connected")
+                mux_cfg = _get_config().multiplexer
+                if mux_cfg.enabled:
+                    from instanton.core.multiplexer import StreamMultiplexer
+
+                    self._multiplexer = StreamMultiplexer(
+                        self._quic, self._protocol, max_streams=mux_cfg.max_streams
+                    )
+
+                if self._network_monitor:
+                    await self._network_monitor.start()
+
+                if self._adaptive_buffer:
+                    self._adaptive_buffer.record_latency(connect_time)
 
                 await self._fire_callbacks(self._on_connect)
 
@@ -1239,15 +1495,21 @@ class QuicTransport(Transport):
             return None
 
     async def close(self) -> None:
-        """Close QUIC connection gracefully."""
         self._shutdown = True
+
+        if self._network_monitor:
+            await self._network_monitor.stop()
+
+        if self._multiplexer:
+            await self._multiplexer.close_all()
+            self._multiplexer = None
 
         if self._quic is not None and self._protocol is not None:
             try:
                 self._quic.close()
                 self._protocol.transmit()
-            except Exception as e:
-                logger.debug("Error closing QUIC", error=str(e))
+            except Exception:
+                pass
 
         self._closed_event.set()
         self._quic = None
@@ -1260,7 +1522,6 @@ class QuicTransport(Transport):
             self._connect_task = None
 
         self._state = ConnectionState.CLOSED
-        logger.info("QUIC transport closed")
 
     def is_connected(self) -> bool:
         """Check if currently connected."""
@@ -1274,24 +1535,52 @@ class QuicTransport(Transport):
         """Get transport statistics."""
         return self._stats
 
+    def get_adaptive_buffer_stats(self) -> dict[str, Any] | None:
+        if self._adaptive_buffer:
+            return self._adaptive_buffer.get_stats()
+        return None
+
     def get_stream(self, stream_id: int) -> QuicStreamHandler | None:
         """Get a stream handler by ID."""
         return self._streams.get(stream_id)
 
     def create_stream(self) -> int:
-        """Create a new bidirectional stream.
-
-        Returns:
-            The stream ID.
-
-        Raises:
-            TransportConnectionError: If not connected.
-        """
         if self._quic is None:
             raise TransportConnectionError("Not connected")
         stream_id = self._quic.get_next_available_stream_id()
         self._streams[stream_id] = QuicStreamHandler(stream_id)
         return stream_id
+
+    @property
+    def multiplexer(self) -> Any:
+        return self._multiplexer
+
+    @property
+    def congestion_controller(self) -> Any:
+        return self._congestion
+
+    @property
+    def network_monitor(self) -> Any:
+        return self._network_monitor
+
+    @property
+    def migrator(self) -> Any:
+        return self._migrator
+
+    def get_phase3_stats(self) -> dict[str, Any]:
+        stats: dict[str, Any] = {}
+        if self._multiplexer:
+            stats["multiplexer"] = self._multiplexer.get_stats()
+        if self._congestion:
+            stats["congestion"] = self._congestion.get_stats()
+        if self._migrator:
+            stats["migration"] = self._migrator.get_stats()
+        if self._network_monitor and self._network_monitor.current_state:
+            stats["network"] = {
+                "ip": self._network_monitor.current_state.ip_address,
+                "type": self._network_monitor.current_state.network_type.value,
+            }
+        return stats
 
 
 class QuicServer:

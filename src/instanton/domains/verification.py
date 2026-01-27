@@ -112,9 +112,7 @@ class DNSVerifier:
             result = await resolver.query_dns(domain, "CNAME")
             if result:
                 target = result.cname.rstrip(".")
-                is_valid = (
-                    target == self.base_domain or target.endswith(f".{self.base_domain}")
-                )
+                is_valid = target == self.base_domain or target.endswith(f".{self.base_domain}")
                 return is_valid, target
             return False, None
         except aiodns.error.DNSError:

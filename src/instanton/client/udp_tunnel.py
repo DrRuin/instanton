@@ -330,6 +330,7 @@ class UdpTunnelClient:
         """Build Proxy-Authorization header if credentials are configured."""
         if self._proxy_username and self._proxy_password:
             import base64
+
             credentials = f"{self._proxy_username}:{self._proxy_password}"
             encoded = base64.b64encode(credentials.encode()).decode()
             return {"Proxy-Authorization": f"Basic {encoded}"}

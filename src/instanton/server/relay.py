@@ -18,29 +18,6 @@ from aiohttp import WSMsgType, web
 
 from instanton.core.config import ServerConfig, get_config
 from instanton.domains import DomainManager, DomainStore
-from instanton.protocol.messages import (
-    ChunkAssembler,
-    ChunkData,
-    ChunkEnd,
-    ChunkStart,
-    CompressionType,
-    ConnectRequest,
-    ConnectResponse,
-    ErrorCode,
-    HttpRequest,
-    HttpRequestStream,
-    HttpResponse,
-    NegotiateRequest,
-    Pong,
-    ProtocolNegotiator,
-    WebSocketClose,
-    WebSocketFrame,
-    WebSocketOpcode,
-    WebSocketUpgrade,
-    WebSocketUpgradeResponse,
-    decode_message,
-    encode_message,
-)
 from instanton.observability.dashboard import (
     DashboardBroadcaster,
     DashboardHandler,
@@ -58,6 +35,28 @@ from instanton.observability.metrics import (
     WEBSOCKET_MESSAGES,
     generate_metrics,
     get_content_type,
+)
+from instanton.protocol.messages import (
+    ChunkAssembler,
+    ChunkData,
+    ChunkEnd,
+    ChunkStart,
+    CompressionType,
+    ConnectRequest,
+    ConnectResponse,
+    ErrorCode,
+    HttpRequest,
+    HttpResponse,
+    NegotiateRequest,
+    Pong,
+    ProtocolNegotiator,
+    WebSocketClose,
+    WebSocketFrame,
+    WebSocketOpcode,
+    WebSocketUpgrade,
+    WebSocketUpgradeResponse,
+    decode_message,
+    encode_message,
 )
 from instanton.security.basicauth import (
     PROXY_AUTH_CHALLENGE,
@@ -205,7 +204,9 @@ class RelayServer:
         self._max_tunnels_per_ip = getattr(config, "max_tunnels_per_ip", 10)
 
         # Tunnel creation rate limiter (separate from request rate limiter)
-        tunnel_rate = getattr(config, "tunnel_creation_rate_limit", 5.0) / 60.0  # Convert per-min to per-sec
+        tunnel_rate = (
+            getattr(config, "tunnel_creation_rate_limit", 5.0) / 60.0
+        )  # Convert per-min to per-sec
         tunnel_burst = getattr(config, "tunnel_creation_burst", 3)
         self._tunnel_creation_limiter = create_rate_limiter(
             requests_per_second=tunnel_rate,
@@ -234,6 +235,8 @@ class RelayServer:
         self._dashboard_collector: MetricsCollector | None = None
         self._dashboard_broadcaster: DashboardBroadcaster | None = None
         self._dashboard_handler: DashboardHandler | None = None
+
+        self._http3_server: Any = None
 
     def _check_control_auth(self, request: web.Request) -> web.Response | None:
         """Check auth for control plane (tunnel connections). Returns error response or None if OK."""
@@ -275,8 +278,9 @@ class RelayServer:
                 decoded = base64.b64decode(encoded).decode("utf-8")
                 username, password = decoded.split(":", 1)
 
-                if (secrets.compare_digest(username, dashboard_user) and
-                    secrets.compare_digest(password, dashboard_pass)):
+                if secrets.compare_digest(username, dashboard_user) and secrets.compare_digest(
+                    password, dashboard_pass
+                ):
                     return None  # Authorized
             except (ValueError, UnicodeDecodeError):
                 pass
@@ -397,7 +401,9 @@ class RelayServer:
             logger.info("Dashboard enabled at /dashboard")
 
         global_config = get_config()
-        self._http_app = web.Application(client_max_size=global_config.performance.http_max_body_size)
+        self._http_app = web.Application(
+            client_max_size=global_config.performance.http_max_body_size
+        )
         self._http_app.router.add_route("*", "/{path:.*}", self._handle_http_request)
 
         self._control_runner = web.AppRunner(self._control_app)
@@ -443,11 +449,18 @@ class RelayServer:
             await self._dashboard_broadcaster.start()
             logger.info("Dashboard metrics collection started")
 
+        if getattr(self.config, "http3_enabled", False):
+            from instanton.server.http3 import HTTP3Server
+
+            self._http3_server = HTTP3Server(self.config, self)
+            await self._http3_server.start()
+
         logger.info(
             "Relay server started",
             base_domain=self.config.base_domain,
             control_bind=self.config.control_bind,
             https_bind=self.config.https_bind,
+            http3_enabled=getattr(self.config, "http3_enabled", False),
         )
 
     def _parse_bind(self, bind: str) -> tuple[str, int]:
@@ -471,6 +484,10 @@ class RelayServer:
             await self._dashboard_broadcaster.stop()
         if self._dashboard_collector:
             await self._dashboard_collector.stop()
+
+        if self._http3_server:
+            await self._http3_server.stop()
+            self._http3_server = None
 
         if self._cleanup_task:
             self._cleanup_task.cancel()
@@ -608,10 +625,7 @@ class RelayServer:
             )
 
         # Per-IP tunnel counts
-        tunnels_per_ip = {
-            ip: len(subdomains)
-            for ip, subdomains in self._tunnels_by_ip.items()
-        }
+        tunnels_per_ip = {ip: len(subdomains) for ip, subdomains in self._tunnels_by_ip.items()}
 
         return web.json_response(
             {
@@ -644,7 +658,9 @@ class RelayServer:
             content_type=get_content_type(),
         )
 
-    async def _handle_tunnel_connection(self, request: web.Request) -> web.WebSocketResponse | web.Response:
+    async def _handle_tunnel_connection(
+        self, request: web.Request
+    ) -> web.WebSocketResponse | web.Response:
         """Handle incoming tunnel client connection."""
         client_ip = request.remote or "unknown"
 
@@ -929,9 +945,7 @@ class RelayServer:
             if ctx.stream_response and ctx.http_request:
                 await ctx.stream_response.prepare(ctx.http_request)
 
-                ctx.heartbeat_task = asyncio.create_task(
-                    self._sse_heartbeat_loop(ctx)
-                )
+                ctx.heartbeat_task = asyncio.create_task(self._sse_heartbeat_loop(ctx))
 
                 logger.debug(
                     "SSE stream prepared with heartbeat",
@@ -1007,13 +1021,11 @@ class RelayServer:
                 )
 
                 is_multipart_stream = (
-                    "multipart/x-mixed-replace" in content_type
-                    or "multipart/mixed" in content_type
+                    "multipart/x-mixed-replace" in content_type or "multipart/mixed" in content_type
                 )
 
-                is_media_stream = (
-                    content_type.startswith("video/")
-                    or content_type.startswith("audio/")
+                is_media_stream = content_type.startswith("video/") or content_type.startswith(
+                    "audio/"
                 )
 
                 is_binary_stream = "application/octet-stream" in content_type
@@ -1044,9 +1056,7 @@ class RelayServer:
                         headers=stream_headers,
                     )
                     ctx.stream_response.enable_chunked_encoding()
-                    asyncio.create_task(
-                        self._prepare_sse_stream(ctx, chunk_start.stream_id)
-                    )
+                    asyncio.create_task(self._prepare_sse_stream(ctx, chunk_start.stream_id))
                     logger.debug(
                         "SSE stream started",
                         stream_id=str(chunk_start.stream_id),
@@ -1180,11 +1190,15 @@ class RelayServer:
                         if frame.opcode == WebSocketOpcode.TEXT:
                             await ws.send_str(frame.payload.decode("utf-8"))
                             WEBSOCKET_MESSAGES.labels(direction="out", type="text").inc()
-                            BYTES_TRANSFERRED.labels(direction="out", protocol="websocket").inc(len(frame.payload))
+                            BYTES_TRANSFERRED.labels(direction="out", protocol="websocket").inc(
+                                len(frame.payload)
+                            )
                         elif frame.opcode == WebSocketOpcode.BINARY:
                             await ws.send_bytes(frame.payload)
                             WEBSOCKET_MESSAGES.labels(direction="out", type="binary").inc()
-                            BYTES_TRANSFERRED.labels(direction="out", protocol="websocket").inc(len(frame.payload))
+                            BYTES_TRANSFERRED.labels(direction="out", protocol="websocket").inc(
+                                len(frame.payload)
+                            )
                         elif frame.opcode == WebSocketOpcode.PING:
                             await ws.ping(frame.payload)
                         elif frame.opcode == WebSocketOpcode.PONG:
@@ -1232,10 +1246,7 @@ class RelayServer:
 
         subprotocols = []
         if "Sec-WebSocket-Protocol" in request.headers:
-            subprotocols = [
-                p.strip()
-                for p in request.headers["Sec-WebSocket-Protocol"].split(",")
-            ]
+            subprotocols = [p.strip() for p in request.headers["Sec-WebSocket-Protocol"].split(",")]
 
         ws_upgrade = WebSocketUpgrade(
             tunnel_id=tunnel_id,
@@ -1289,7 +1300,9 @@ class RelayServer:
                         await tunnel.websocket.send_bytes(frame_bytes)
                         tunnel.bytes_sent += len(frame_bytes)
                         WEBSOCKET_MESSAGES.labels(direction="in", type="text").inc()
-                        BYTES_TRANSFERRED.labels(direction="in", protocol="websocket").inc(len(payload))
+                        BYTES_TRANSFERRED.labels(direction="in", protocol="websocket").inc(
+                            len(payload)
+                        )
                         logger.info(f"WS TEXT {len(payload)}B tunnel={str(tunnel_id)[:8]}")
                     elif msg.type == WSMsgType.BINARY:
                         frame = WebSocketFrame(
@@ -1301,7 +1314,9 @@ class RelayServer:
                         await tunnel.websocket.send_bytes(frame_bytes)
                         tunnel.bytes_sent += len(frame_bytes)
                         WEBSOCKET_MESSAGES.labels(direction="in", type="binary").inc()
-                        BYTES_TRANSFERRED.labels(direction="in", protocol="websocket").inc(len(msg.data))
+                        BYTES_TRANSFERRED.labels(direction="in", protocol="websocket").inc(
+                            len(msg.data)
+                        )
                         logger.info(f"WS BINARY {len(msg.data)}B tunnel={str(tunnel_id)[:8]}")
                     elif msg.type == WSMsgType.CLOSE:
                         close_msg = WebSocketClose(
@@ -1489,7 +1504,9 @@ class RelayServer:
             )
 
         # Per-subdomain rate limiting to prevent one tunnel from DoS'ing the server
-        subdomain_limit = await self._subdomain_rate_limiter.allow(tunnel.subdomain, scope="subdomain")
+        subdomain_limit = await self._subdomain_rate_limiter.allow(
+            tunnel.subdomain, scope="subdomain"
+        )
         if not subdomain_limit.allowed:
             logger.warning(
                 "Per-subdomain rate limit exceeded",
@@ -1511,14 +1528,6 @@ class RelayServer:
             or "application/grpc+proto" in request_content_type
             or "application/grpc-web" in request_content_type
         )
-
-        content_length_str = request.headers.get("Content-Length", "0")
-        try:
-            content_length = int(content_length_str)
-        except ValueError:
-            content_length = 0
-
-        use_streaming = False
 
         headers = {}
         hop_by_hop = {
@@ -1563,76 +1572,23 @@ class RelayServer:
         self._pending_requests[request_id] = ctx
 
         try:
-            if use_streaming:
-                stream_id = uuid4()
-                total_bytes_sent = 0
+            body = await request.read()
 
-                stream_request = HttpRequestStream(
-                    request_id=request_id,
-                    stream_id=stream_id,
-                    method=request.method,
-                    path=request.path_qs,
-                    headers=headers,
-                    content_length=content_length if content_length > 0 else None,
-                )
-                msg_bytes = encode_message(stream_request, tunnel.compression)
-                await tunnel.websocket.send_bytes(msg_bytes)
-                tunnel.bytes_sent += len(msg_bytes)
-
-                sequence = 0
-                async for chunk in request.content.iter_chunked(stream_chunk_size):
-                    total_bytes_sent += len(chunk)
-                    is_final = total_bytes_sent >= content_length if content_length > 0 else False
-
-                    chunk_msg = ChunkData(
-                        stream_id=stream_id,
-                        sequence=sequence,
-                        data=chunk,
-                        is_final=is_final,
-                    )
-                    msg_bytes = encode_message(chunk_msg, tunnel.compression)
-                    await tunnel.websocket.send_bytes(msg_bytes)
-                    tunnel.bytes_sent += len(msg_bytes)
-                    sequence += 1
-
-                end_msg = ChunkEnd(
-                    stream_id=stream_id,
-                    request_id=request_id,
-                    success=True,
-                )
-                msg_bytes = encode_message(end_msg, tunnel.compression)
-                await tunnel.websocket.send_bytes(msg_bytes)
-                tunnel.bytes_sent += len(msg_bytes)
-
-                if is_grpc_request:
-                    BYTES_TRANSFERRED.labels(direction="in", protocol="grpc").inc(total_bytes_sent)
-                else:
-                    BYTES_TRANSFERRED.labels(direction="in", protocol="http").inc(total_bytes_sent)
-
-                logger.debug(
-                    "Streamed large request body",
-                    request_id=str(request_id),
-                    total_size=total_bytes_sent,
-                    chunks=sequence,
-                )
+            if is_grpc_request:
+                BYTES_TRANSFERRED.labels(direction="in", protocol="grpc").inc(len(body))
             else:
-                body = await request.read()
+                BYTES_TRANSFERRED.labels(direction="in", protocol="http").inc(len(body))
 
-                if is_grpc_request:
-                    BYTES_TRANSFERRED.labels(direction="in", protocol="grpc").inc(len(body))
-                else:
-                    BYTES_TRANSFERRED.labels(direction="in", protocol="http").inc(len(body))
-
-                http_request = HttpRequest(
-                    request_id=request_id,
-                    method=request.method,
-                    path=request.path_qs,
-                    headers=headers,
-                    body=body,
-                )
-                msg_bytes = encode_message(http_request, tunnel.compression)
-                await tunnel.websocket.send_bytes(msg_bytes)
-                tunnel.bytes_sent += len(msg_bytes)
+            http_request = HttpRequest(
+                request_id=request_id,
+                method=request.method,
+                path=request.path_qs,
+                headers=headers,
+                body=body,
+            )
+            msg_bytes = encode_message(http_request, tunnel.compression)
+            await tunnel.websocket.send_bytes(msg_bytes)
+            tunnel.bytes_sent += len(msg_bytes)
 
             tunnel.request_count += 1
             tunnel.last_activity = datetime.now(UTC)
@@ -1723,32 +1679,49 @@ class RelayServer:
                 await stream_response.prepare(request)
 
                 chunk_size = 65536
+                body_view = memoryview(body)
                 for i in range(0, body_size, chunk_size):
-                    await stream_response.write(body[i : i + chunk_size])
+                    await stream_response.write(body_view[i : i + chunk_size])
 
                 await stream_response.write_eof()
                 duration_ms = int((time.time() - request_start) * 1000)
                 REQUEST_DURATION.observe(time.time() - request_start)
-                HTTP_REQUESTS.labels(method=request.method, status=_bucket_status(response.status)).inc()
+                HTTP_REQUESTS.labels(
+                    method=request.method, status=_bucket_status(response.status)
+                ).inc()
                 if is_grpc_request:
-                    GRPC_REQUESTS.labels(method=request.path, status=_bucket_status(response.status)).inc()
+                    GRPC_REQUESTS.labels(
+                        method=request.path, status=_bucket_status(response.status)
+                    ).inc()
                     BYTES_TRANSFERRED.labels(direction="out", protocol="grpc").inc(body_size)
-                    logger.info(f"gRPC {request.method} {request.path_qs} {response.status} {duration_ms}ms {body_size}B")
+                    logger.info(
+                        f"gRPC {request.method} {request.path_qs} {response.status} {duration_ms}ms {body_size}B"
+                    )
                 else:
                     BYTES_TRANSFERRED.labels(direction="out", protocol="http").inc(body_size)
-                    logger.info(f"HTTP {request.method} {request.path_qs} {response.status} {duration_ms}ms {body_size}B")
+                    logger.info(
+                        f"HTTP {request.method} {request.path_qs} {response.status} {duration_ms}ms {body_size}B"
+                    )
                 return stream_response
             else:
                 duration_ms = int((time.time() - request_start) * 1000)
                 REQUEST_DURATION.observe(time.time() - request_start)
-                HTTP_REQUESTS.labels(method=request.method, status=_bucket_status(response.status)).inc()
+                HTTP_REQUESTS.labels(
+                    method=request.method, status=_bucket_status(response.status)
+                ).inc()
                 if is_grpc_request:
-                    GRPC_REQUESTS.labels(method=request.path, status=_bucket_status(response.status)).inc()
+                    GRPC_REQUESTS.labels(
+                        method=request.path, status=_bucket_status(response.status)
+                    ).inc()
                     BYTES_TRANSFERRED.labels(direction="out", protocol="grpc").inc(len(body))
-                    logger.info(f"gRPC {request.method} {request.path_qs} {response.status} {duration_ms}ms {len(body)}B")
+                    logger.info(
+                        f"gRPC {request.method} {request.path_qs} {response.status} {duration_ms}ms {len(body)}B"
+                    )
                 else:
                     BYTES_TRANSFERRED.labels(direction="out", protocol="http").inc(len(body))
-                    logger.info(f"HTTP {request.method} {request.path_qs} {response.status} {duration_ms}ms {len(body)}B")
+                    logger.info(
+                        f"HTTP {request.method} {request.path_qs} {response.status} {duration_ms}ms {len(body)}B"
+                    )
                 return web.Response(
                     status=response.status,
                     headers=response_headers,
@@ -1787,6 +1760,7 @@ class RelayServer:
             )
         except Exception as e:
             import traceback
+
             logger.error(
                 "Request error",
                 subdomain=subdomain,
@@ -1875,7 +1849,9 @@ class RelayServer:
             self._next_udp_port = self._udp_port_min
         return port
 
-    async def _handle_tcp_tunnel_connection(self, request: web.Request) -> web.WebSocketResponse | web.Response:
+    async def _handle_tcp_tunnel_connection(
+        self, request: web.Request
+    ) -> web.WebSocketResponse | web.Response:
         """Handle incoming TCP tunnel client connection."""
         import struct
 
@@ -1912,8 +1888,12 @@ class RelayServer:
         # Check per-IP tunnel limit
         current_ip_tunnels = len(self._tunnels_by_ip.get(client_ip, set()))
         if current_ip_tunnels >= self._max_tunnels_per_ip:
-            logger.warning("Per-IP tunnel limit exceeded for TCP", ip=client_ip, current=current_ip_tunnels)
-            return web.Response(text=f"Too Many Tunnels - max {self._max_tunnels_per_ip} per IP", status=429)
+            logger.warning(
+                "Per-IP tunnel limit exceeded for TCP", ip=client_ip, current=current_ip_tunnels
+            )
+            return web.Response(
+                text=f"Too Many Tunnels - max {self._max_tunnels_per_ip} per IP", status=429
+            )
 
         config = get_config()
         ws = web.WebSocketResponse(heartbeat=config.timeouts.ping_interval)
@@ -2017,7 +1997,9 @@ class RelayServer:
 
         return ws
 
-    async def _handle_udp_tunnel_connection(self, request: web.Request) -> web.WebSocketResponse | web.Response:
+    async def _handle_udp_tunnel_connection(
+        self, request: web.Request
+    ) -> web.WebSocketResponse | web.Response:
         """Handle incoming UDP tunnel client connection."""
         import struct
 
@@ -2054,8 +2036,12 @@ class RelayServer:
         # Check per-IP tunnel limit
         current_ip_tunnels = len(self._tunnels_by_ip.get(client_ip, set()))
         if current_ip_tunnels >= self._max_tunnels_per_ip:
-            logger.warning("Per-IP tunnel limit exceeded for UDP", ip=client_ip, current=current_ip_tunnels)
-            return web.Response(text=f"Too Many Tunnels - max {self._max_tunnels_per_ip} per IP", status=429)
+            logger.warning(
+                "Per-IP tunnel limit exceeded for UDP", ip=client_ip, current=current_ip_tunnels
+            )
+            return web.Response(
+                text=f"Too Many Tunnels - max {self._max_tunnels_per_ip} per IP", status=429
+            )
 
         config = get_config()
         ws = web.WebSocketResponse(heartbeat=config.timeouts.ping_interval)

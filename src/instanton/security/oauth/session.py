@@ -189,8 +189,7 @@ class SessionManager:
 
         async with self._lock:
             expired_ids = [
-                sid for sid, session in self._sessions.items()
-                if session.expires_at < now
+                sid for sid, session in self._sessions.items() if session.expires_at < now
             ]
             for sid in expired_ids:
                 del self._sessions[sid]

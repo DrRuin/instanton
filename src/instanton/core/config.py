@@ -1,8 +1,4 @@
-"""Configuration types with environment variable support.
-
-All settings can be configured via environment variables with the INSTANTON_ prefix.
-Example: INSTANTON_CHUNK_SIZE=2097152 sets chunk_size to 2MB.
-"""
+"""Configuration."""
 
 from __future__ import annotations
 
@@ -16,18 +12,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def load_config_from_file(path: str | Path) -> dict[str, Any]:
-    """Load configuration from a YAML or TOML file.
-
-    Args:
-        path: Path to the configuration file (.yaml, .yml, or .toml)
-
-    Returns:
-        Configuration dictionary
-
-    Raises:
-        FileNotFoundError: If the config file doesn't exist
-        ValueError: If the config file has encoding errors, invalid syntax, or unsupported format
-    """
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
@@ -62,8 +46,6 @@ def flatten_config(config: dict[str, Any], prefix: str = "") -> dict[str, Any]:
 
 
 class ClientConfig(BaseModel):
-    """Client configuration optimized for global users with varying latency."""
-
     server_addr: str = "instanton.tech:4443"
     local_port: int = 8080
     subdomain: str | None = None
@@ -78,8 +60,6 @@ class ClientConfig(BaseModel):
 
 
 class ServerConfig(BaseModel):
-    """Server configuration."""
-
     https_bind: str = "0.0.0.0:443"
     control_bind: str = "0.0.0.0:4443"
     base_domain: str = "instanton.tech"
@@ -89,245 +69,196 @@ class ServerConfig(BaseModel):
     acme_email: str | None = None
     max_tunnels: int = 10000
     idle_timeout: float = 300.0
-    request_timeout: float | None = Field(
-        default=600.0,
-        description="Timeout in seconds for HTTP requests. None or 0 for indefinite.",
-    )
-    subdomain_grace_period: float = Field(
-        default=1800.0,
-        description="Grace period in seconds to reserve subdomain after client disconnect.",
-    )
-    domains_enabled: bool = Field(
-        default=True,
-        description="Enable custom domain support.",
-    )
-    domains_storage_path: str = Field(
-        default="domains.json",
-        description="Path to the JSON file storing custom domain registrations.",
-    )
-    rate_limit_enabled: bool = Field(
-        default=False,
-        description="Enable rate limiting per IP.",
-    )
-    rate_limit_rps: float = Field(
-        default=100.0,
-        description="Requests per second limit per IP.",
-    )
-    rate_limit_burst: int = Field(
-        default=10,
-        description="Burst allowance above the per-second rate.",
-    )
-    ip_restrict_enabled: bool = Field(
-        default=False,
-        description="Enable IP allow/deny restrictions.",
-    )
-    ip_allow: list[str] = Field(
-        default_factory=list,
-        description="Allowed IPs/CIDRs.",
-    )
-    ip_deny: list[str] = Field(
-        default_factory=list,
-        description="Denied IPs/CIDRs (takes precedence).",
-    )
-    auth_enabled: bool = Field(
-        default=False,
-        description="Enable basic authentication for HTTP requests.",
-    )
-    auth_username: str | None = Field(
-        default=None,
-        description="Username for basic authentication.",
-    )
-    auth_password: str | None = Field(
-        default=None,
-        repr=False,
-        description="Password for basic authentication.",
-    )
-    # Per-IP tunnel limits (abuse prevention)
-    max_tunnels_per_ip: int = Field(
-        default=10,
-        description="Maximum concurrent tunnels allowed per IP address.",
-    )
-    tunnel_creation_rate_limit: float = Field(
-        default=5.0,
-        description="Maximum tunnel creations per minute per IP.",
-    )
-    tunnel_creation_burst: int = Field(
-        default=3,
-        description="Burst allowance for tunnel creation rate limit.",
-    )
-    # Dashboard configuration
-    dashboard_enabled: bool = Field(
-        default=False,
-        description="Enable real-time traffic dashboard. Requires dashboard_user and dashboard_password.",
-    )
-    dashboard_user: str | None = Field(
-        default=None,
-        description="Username for dashboard authentication (required to enable dashboard).",
-    )
-    dashboard_password: str | None = Field(
-        default=None,
-        repr=False,
-        description="Password for dashboard authentication (required to enable dashboard).",
-    )
-    dashboard_update_interval: float = Field(
-        default=1.0,
-        description="Dashboard metrics update interval in seconds.",
-    )
-    dashboard_history_seconds: int = Field(
-        default=300,
-        description="Dashboard history buffer size in seconds (5 minutes default).",
-    )
-    dashboard_max_login_failures: int = Field(
-        default=5,
-        description="Max failed login attempts before IP lockout.",
-    )
-    dashboard_lockout_minutes: float = Field(
-        default=15.0,
-        description="How long to lock out an IP after max failures (minutes).",
-    )
-    # TCP/UDP port ranges for raw tunnels
-    tcp_port_min: int = Field(
-        default=10000,
-        description="TCP tunnel port range start.",
-    )
-    tcp_port_max: int = Field(
-        default=19999,
-        description="TCP tunnel port range end.",
-    )
-    udp_port_min: int = Field(
-        default=20000,
-        description="UDP tunnel port range start.",
-    )
-    udp_port_max: int = Field(
-        default=29999,
-        description="UDP tunnel port range end.",
-    )
-    # OAuth/OIDC configuration (self-hosted only)
-    oauth_enabled: bool = Field(
-        default=False,
-        description="Enable OAuth/OIDC authentication for tunnel access.",
-    )
-    oauth_provider: str = Field(
-        default="oidc",
-        description="OAuth provider: 'github', 'google', or 'oidc'.",
-    )
-    oauth_client_id: str | None = Field(
-        default=None,
-        description="OAuth client ID.",
-    )
-    oauth_client_secret: str | None = Field(
-        default=None,
-        repr=False,
-        description="OAuth client secret.",
-    )
-    oauth_issuer_url: str | None = Field(
-        default=None,
-        description="OIDC issuer URL for discovery (e.g., https://accounts.google.com).",
-    )
-    oauth_allowed_domains: list[str] = Field(
-        default_factory=list,
-        description="Allowed email domains (e.g., ['mycompany.com']).",
-    )
-    oauth_allowed_emails: list[str] = Field(
-        default_factory=list,
-        description="Allowed specific emails.",
-    )
-    oauth_session_duration: int = Field(
-        default=86400,
-        description="Session duration in seconds (default 24 hours).",
-    )
+    request_timeout: float | None = 600.0
+    subdomain_grace_period: float = 1800.0
+    domains_enabled: bool = True
+    domains_storage_path: str = "domains.json"
+    rate_limit_enabled: bool = False
+    rate_limit_rps: float = 100.0
+    rate_limit_burst: int = 10
+    ip_restrict_enabled: bool = False
+    ip_allow: list[str] = Field(default_factory=list)
+    ip_deny: list[str] = Field(default_factory=list)
+    auth_enabled: bool = False
+    auth_username: str | None = None
+    auth_password: str | None = Field(default=None, repr=False)
+    max_tunnels_per_ip: int = 10
+    tunnel_creation_rate_limit: float = 5.0
+    tunnel_creation_burst: int = 3
+    dashboard_enabled: bool = False
+    dashboard_user: str | None = None
+    dashboard_password: str | None = Field(default=None, repr=False)
+    dashboard_update_interval: float = 1.0
+    dashboard_history_seconds: int = 300
+    dashboard_max_login_failures: int = 5
+    dashboard_lockout_minutes: float = 15.0
+    tcp_port_min: int = 10000
+    tcp_port_max: int = 19999
+    udp_port_min: int = 20000
+    udp_port_max: int = 29999
+    oauth_enabled: bool = False
+    oauth_provider: str = "oidc"
+    oauth_client_id: str | None = None
+    oauth_client_secret: str | None = Field(default=None, repr=False)
+    oauth_issuer_url: str | None = None
+    oauth_allowed_domains: list[str] = Field(default_factory=list)
+    oauth_allowed_emails: list[str] = Field(default_factory=list)
+    oauth_session_duration: int = 86400
+    http3_enabled: bool = False
+    http3_bind: str = "0.0.0.0:443"
+    http3_idle_timeout: float = 60.0
 
 
 class DomainsConfig(BaseModel):
-    """Configuration for custom domain support.
-
-    Custom domains allow users to use their own domains (e.g., api.mycompany.com)
-    instead of the default random.instanton.tech subdomains.
-    """
-
-    enabled: bool = Field(
-        default=True,
-        description="Enable custom domain support.",
-    )
-    storage_path: str = Field(
-        default="domains.json",
-        description="Path to the JSON file storing domain registrations.",
-    )
-    verification_ttl: int = Field(
-        default=86400,
-        description="TTL in seconds for DNS verification tokens (24 hours default).",
-    )
-    auto_tls: bool = Field(
-        default=True,
-        description="Automatically provision TLS certificates for custom domains via ACME.",
-    )
+    enabled: bool = True
+    storage_path: str = "domains.json"
+    verification_ttl: int = 86400
+    auto_tls: bool = True
 
 
 class RateLimitingConfig(BaseModel):
-    """Configuration for rate limiting.
-
-    Sliding window rate limiting protects against abuse while allowing
-    legitimate burst traffic.
-    """
-
-    enabled: bool = Field(
-        default=False,
-        description="Enable rate limiting.",
-    )
-    requests_per_second: float = Field(
-        default=100.0,
-        description="Maximum requests per second per IP.",
-    )
-    burst_size: int = Field(
-        default=10,
-        description="Burst allowance above the per-second rate.",
-    )
-    window_seconds: float = Field(
-        default=1.0,
-        description="Time window for rate calculation.",
-    )
-    max_entries: int = Field(
-        default=10000,
-        description="Maximum tracked IPs before LRU eviction.",
-    )
+    enabled: bool = False
+    requests_per_second: float = 100.0
+    burst_size: int = 10
+    window_seconds: float = 1.0
+    max_entries: int = 10000
 
 
 class IPRestrictConfig(BaseModel):
-    """Configuration for IP restrictions.
+    enabled: bool = False
+    allow: list[str] = Field(default_factory=list)
+    deny: list[str] = Field(default_factory=list)
+    default_policy: str = "allow"
 
-    Allow or deny access based on IP addresses or CIDR ranges.
-    Deny rules take precedence over allow rules.
-    """
 
-    enabled: bool = Field(
-        default=False,
-        description="Enable IP restrictions.",
+class QuicConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="INSTANTON_QUIC_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
     )
-    allow: list[str] = Field(
-        default_factory=list,
-        description="List of allowed IPs/CIDRs (e.g., ['10.0.0.0/8', '192.168.1.1']).",
+
+    zero_rtt_enabled: bool = Field(default=True, alias="enable_0rtt")
+    enable_0rtt: bool = True
+    session_ticket_path: str | None = None
+    session_ticket_ttl: int = 86400
+    session_ticket_lifetime: int = 86400
+    max_session_tickets: int = 100
+    enable_connection_migration: bool = True
+    max_datagram_frame_size: int = 65536
+
+
+class AdaptiveBufferConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="INSTANTON_BUFFER_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
     )
-    deny: list[str] = Field(
-        default_factory=list,
-        description="List of denied IPs/CIDRs.",
+
+    enabled: bool = True
+    min_size: int = 1024
+    min_buffer: int = 1024
+    max_size: int = 65536
+    max_buffer: int = 65536
+    target_latency_ms: float = 50.0
+    target_latency: float = 0.05
+    low_latency_threshold_ms: float = 10.0
+    sample_window: int = 100
+    adjustment_interval_ms: float = 1000.0
+
+
+class ParallelProcessingConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="INSTANTON_PARALLEL_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
     )
-    default_policy: str = Field(
-        default="allow",
-        description="Default policy when no rules match: 'allow' or 'deny'.",
+
+    enabled: bool = True
+    max_concurrent_tasks: int = 10
+    batch_size: int = 5
+
+
+class PoolConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="INSTANTON_POOL_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
     )
+
+    enabled: bool = True
+    max_tunnels_per_connection: int = 100
+    idle_timeout: float = 300.0
+    cleanup_interval: float = 60.0
+
+
+class MultiplexerConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="INSTANTON_MUX_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    enabled: bool = True
+    max_concurrent_streams: int = 1000
+    max_streams: int = 100
+    stream_recv_buffer: int = 1000
+    reuse_streams: bool = True
+    max_pooled_streams: int = 20
+    stream_pool_size: int = 20
+
+
+class MigrationConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="INSTANTON_MIGRATION_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    enabled: bool = True
+    check_interval: float = 2.0
+    max_migration_time: float = 10.0
+    max_retries: int = 3
+
+
+class CongestionConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="INSTANTON_CC_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    enabled: bool = True
+    initial_cwnd: int = 32768
+    min_cwnd: int = 4096
+    max_cwnd: int = 16777216
+    pacing_gain: float = 1.25
+    drain_gain: float = 0.75
+
+
+class WebTransportConfig(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="INSTANTON_WT_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    enabled: bool = True
+    max_sessions: int = 100
+    max_streams_per_session: int = 100
+    datagram_buffer_size: int = 1000
+    connect_timeout: float = 30.0
 
 
 class PerformanceConfig(BaseSettings):
-    """Performance tuning configuration.
-
-    All settings can be overridden via environment variables:
-    - INSTANTON_CHUNK_SIZE: Chunk size for streaming (bytes)
-    - INSTANTON_MAX_MESSAGE_SIZE: Maximum message size (bytes)
-    - INSTANTON_COMPRESSION_ENABLED: Enable/disable auto-compression
-    - INSTANTON_COMPRESSION_LEVEL: ZSTD compression level (1-19)
-    - etc.
-    """
-
     model_config = SettingsConfigDict(
         env_prefix="INSTANTON_",
         env_file=".env",
@@ -335,80 +266,26 @@ class PerformanceConfig(BaseSettings):
         extra="ignore",
     )
 
-    chunk_size: int = Field(
-        default=1024 * 1024,
-        description="Chunk size for streaming (bytes). Default 1MB.",
-    )
-    max_message_size: int = Field(
-        default=64 * 1024 * 1024,
-        description="Maximum message size (bytes). Default 64MB.",
-    )
-    stream_threshold: int = Field(
-        default=65536,
-        description="Response size threshold to use streaming. Default 64KB.",
-    )
-
-    compression_enabled: bool = Field(
-        default=True,
-        description="Enable automatic compression for text content.",
-    )
-    compression_level: int = Field(
-        default=3,
-        ge=1,
-        le=19,
-        description="ZSTD compression level (1-19). Lower is faster, higher is smaller.",
-    )
-    min_compression_size: int = Field(
-        default=1024,
-        description="Minimum payload size to trigger compression (bytes).",
-    )
-    compression_skip_types: str = Field(
-        default="image/,video/,audio/,application/zip,application/gzip,application/x-rar,application/x-7z,application/pdf,application/octet-stream",
-        description="Comma-separated content types to skip compression (already compressed).",
-    )
-
-    ws_max_size: int = Field(
-        default=2 * 1024 * 1024 * 1024,
-        description="WebSocket maximum message size (bytes). Default 2GB.",
-    )
-    ws_read_buffer: int = Field(
-        default=64 * 1024 * 1024,
-        description="WebSocket read buffer size (bytes). Default 64MB.",
-    )
-    ws_write_buffer: int = Field(
-        default=64 * 1024 * 1024,
-        description="WebSocket write buffer size (bytes). Default 64MB.",
-    )
-
-    http_max_body_size: int = Field(
-        default=2 * 1024 * 1024 * 1024,
-        description="Maximum HTTP body size (bytes). Default 2GB.",
-    )
-
-    stream_request_threshold: int = Field(
-        default=1 * 1024 * 1024,
-        description="Request body size threshold to use streaming (bytes). Default 1MB.",
-    )
-    stream_response_threshold: int = Field(
-        default=5 * 1024 * 1024,
-        description="Response body size threshold to use streaming (bytes). Default 5MB.",
-    )
-    stream_chunk_size: int = Field(
-        default=4 * 1024 * 1024,
-        description="Chunk size for streaming large files (bytes). Default 4MB.",
-    )
+    chunk_size: int = 1024 * 1024
+    max_message_size: int = 64 * 1024 * 1024
+    stream_threshold: int = 65536
+    compression_enabled: bool = True
+    compression_level: int = Field(default=3, ge=1, le=19)
+    min_compression_size: int = 1024
+    compression_skip_types: str = "image/,video/,audio/,application/zip,application/gzip,application/x-rar,application/x-7z,application/pdf,application/octet-stream"
+    ws_max_size: int = 2 * 1024 * 1024 * 1024
+    ws_read_buffer: int = 64 * 1024 * 1024
+    ws_write_buffer: int = 64 * 1024 * 1024
+    http_max_body_size: int = 2 * 1024 * 1024 * 1024
+    stream_request_threshold: int = 1 * 1024 * 1024
+    stream_response_threshold: int = 5 * 1024 * 1024
+    stream_chunk_size: int = 4 * 1024 * 1024
 
     def get_skip_compression_types(self) -> set[str]:
-        """Parse compression_skip_types string into a set."""
         return {t.strip() for t in self.compression_skip_types.split(",") if t.strip()}
 
 
 class TimeoutConfig(BaseSettings):
-    """Timeout configuration.
-
-    All timeouts are in seconds. Set to 0 or None for indefinite where supported.
-    """
-
     model_config = SettingsConfigDict(
         env_prefix="INSTANTON_",
         env_file=".env",
@@ -416,51 +293,19 @@ class TimeoutConfig(BaseSettings):
         extra="ignore",
     )
 
-    connect_timeout: float = Field(
-        default=30.0,
-        description="Connection timeout (seconds).",
-    )
-    read_timeout: float | None = Field(
-        default=None,
-        description="Read timeout (seconds). None for indefinite.",
-    )
-    write_timeout: float = Field(
-        default=5.0,
-        description="Write timeout (seconds).",
-    )
-    ping_interval: float = Field(
-        default=30.0,
-        description="Heartbeat ping interval (seconds).",
-    )
-    ping_timeout: float = Field(
-        default=15.0,
-        description="Ping response timeout (seconds).",
-    )
-    request_timeout: float | None = Field(
-        default=600.0,
-        description="HTTP request timeout (seconds). None or 0 for indefinite.",
-    )
-    idle_timeout: float = Field(
-        default=300.0,
-        description="Idle connection timeout (seconds).",
-    )
-    ws_close_timeout: float = Field(
-        default=5.0,
-        description="WebSocket close handshake timeout (seconds).",
-    )
-    ws_receive_timeout: float = Field(
-        default=600.0,
-        description="WebSocket receive timeout (seconds).",
-    )
-    sse_heartbeat_interval: float = Field(
-        default=15.0,
-        description="SSE heartbeat interval (seconds).",
-    )
+    connect_timeout: float = 30.0
+    read_timeout: float | None = None
+    write_timeout: float = 5.0
+    ping_interval: float = 30.0
+    ping_timeout: float = 15.0
+    request_timeout: float | None = 600.0
+    idle_timeout: float = 300.0
+    ws_close_timeout: float = 5.0
+    ws_receive_timeout: float = 600.0
+    sse_heartbeat_interval: float = 15.0
 
 
 class ReconnectConfig(BaseSettings):
-    """Reconnection behavior configuration."""
-
     model_config = SettingsConfigDict(
         env_prefix="INSTANTON_",
         env_file=".env",
@@ -468,33 +313,14 @@ class ReconnectConfig(BaseSettings):
         extra="ignore",
     )
 
-    auto_reconnect: bool = Field(
-        default=True,
-        description="Enable automatic reconnection on disconnect.",
-    )
-    max_attempts: int = Field(
-        default=15,
-        description="Maximum reconnection attempts. 0 for infinite.",
-    )
-    base_delay: float = Field(
-        default=1.0,
-        description="Initial reconnection delay (seconds).",
-    )
-    max_delay: float = Field(
-        default=60.0,
-        description="Maximum reconnection delay (seconds).",
-    )
-    jitter: float = Field(
-        default=0.2,
-        ge=0.0,
-        le=1.0,
-        description="Reconnection jitter factor (0-1). Adds randomness to prevent thundering herd.",
-    )
+    auto_reconnect: bool = True
+    max_attempts: int = 15
+    base_delay: float = 1.0
+    max_delay: float = 60.0
+    jitter: float = Field(default=0.2, ge=0.0, le=1.0)
 
 
 class ResourceConfig(BaseSettings):
-    """Resource allocation configuration."""
-
     model_config = SettingsConfigDict(
         env_prefix="INSTANTON_",
         env_file=".env",
@@ -502,72 +328,22 @@ class ResourceConfig(BaseSettings):
         extra="ignore",
     )
 
-    max_tunnels: int = Field(
-        default=10000,
-        description="Maximum concurrent tunnels.",
-    )
-    max_connections: int = Field(
-        default=100,
-        description="Maximum connections to local service.",
-    )
-    max_keepalive: int = Field(
-        default=20,
-        description="Maximum keepalive connections in pool.",
-    )
-    max_concurrent_streams: int = Field(
-        default=1000,
-        description="Maximum concurrent chunk streams.",
-    )
-    dns_cache_ttl: float = Field(
-        default=300.0,
-        description="DNS cache TTL (seconds).",
-    )
-    dns_cache_size: int = Field(
-        default=100,
-        description="Maximum DNS cache entries.",
-    )
-    tcp_port_min: int = Field(
-        default=10000,
-        description="TCP tunnel port range start.",
-    )
-    tcp_port_max: int = Field(
-        default=19999,
-        description="TCP tunnel port range end.",
-    )
-    udp_port_min: int = Field(
-        default=20000,
-        description="UDP tunnel port range start.",
-    )
-    udp_port_max: int = Field(
-        default=29999,
-        description="UDP tunnel port range end.",
-    )
-    subdomain_grace_period: float = Field(
-        default=1800.0,
-        description="Subdomain reservation grace period after disconnect (seconds).",
-    )
-    cleanup_interval: float = Field(
-        default=60.0,
-        description="Cleanup loop interval (seconds).",
-    )
-    chunk_stream_ttl: float = Field(
-        default=300.0,
-        description="Incomplete chunk stream TTL (seconds).",
-    )
+    max_tunnels: int = 10000
+    max_connections: int = 100
+    max_keepalive: int = 20
+    max_concurrent_streams: int = 1000
+    dns_cache_ttl: float = 300.0
+    dns_cache_size: int = 100
+    tcp_port_min: int = 10000
+    tcp_port_max: int = 19999
+    udp_port_min: int = 20000
+    udp_port_max: int = 29999
+    subdomain_grace_period: float = 1800.0
+    cleanup_interval: float = 60.0
+    chunk_stream_ttl: float = 300.0
 
 
 class InstantonConfig(BaseSettings):
-    """Master configuration combining all settings.
-
-    This is the main configuration class that aggregates all settings.
-    Use get_config() to get a cached instance.
-
-    Example:
-        config = get_config()
-        print(config.performance.chunk_size)
-        print(config.timeouts.connect_timeout)
-    """
-
     model_config = SettingsConfigDict(
         env_prefix="INSTANTON_",
         env_file=".env",
@@ -575,25 +351,97 @@ class InstantonConfig(BaseSettings):
         extra="ignore",
     )
 
+    _perf_cache: PerformanceConfig | None = None
+    _timeout_cache: TimeoutConfig | None = None
+    _reconnect_cache: ReconnectConfig | None = None
+    _resources_cache: ResourceConfig | None = None
+    _quic_cache: QuicConfig | None = None
+    _adaptive_buffer_cache: AdaptiveBufferConfig | None = None
+    _parallel_cache: ParallelProcessingConfig | None = None
+    _pool_cache: PoolConfig | None = None
+    _multiplexer_cache: MultiplexerConfig | None = None
+    _migration_cache: MigrationConfig | None = None
+    _congestion_cache: CongestionConfig | None = None
+    _webtransport_cache: WebTransportConfig | None = None
+
     @property
     def performance(self) -> PerformanceConfig:
-        """Get performance configuration."""
-        return PerformanceConfig()
+        """Get performance configuration (cached)."""
+        if self._perf_cache is None:
+            self._perf_cache = PerformanceConfig()
+        return self._perf_cache
 
     @property
     def timeouts(self) -> TimeoutConfig:
-        """Get timeout configuration."""
-        return TimeoutConfig()
+        """Get timeout configuration (cached)."""
+        if self._timeout_cache is None:
+            self._timeout_cache = TimeoutConfig()
+        return self._timeout_cache
 
     @property
     def reconnect(self) -> ReconnectConfig:
-        """Get reconnection configuration."""
-        return ReconnectConfig()
+        """Get reconnection configuration (cached)."""
+        if self._reconnect_cache is None:
+            self._reconnect_cache = ReconnectConfig()
+        return self._reconnect_cache
 
     @property
     def resources(self) -> ResourceConfig:
-        """Get resource configuration."""
-        return ResourceConfig()
+        """Get resource configuration (cached)."""
+        if self._resources_cache is None:
+            self._resources_cache = ResourceConfig()
+        return self._resources_cache
+
+    @property
+    def quic(self) -> QuicConfig:
+        """Get QUIC transport configuration (cached)."""
+        if self._quic_cache is None:
+            self._quic_cache = QuicConfig()
+        return self._quic_cache
+
+    @property
+    def adaptive_buffer(self) -> AdaptiveBufferConfig:
+        """Get adaptive buffer configuration (cached)."""
+        if self._adaptive_buffer_cache is None:
+            self._adaptive_buffer_cache = AdaptiveBufferConfig()
+        return self._adaptive_buffer_cache
+
+    @property
+    def parallel(self) -> ParallelProcessingConfig:
+        """Get parallel processing configuration (cached)."""
+        if self._parallel_cache is None:
+            self._parallel_cache = ParallelProcessingConfig()
+        return self._parallel_cache
+
+    @property
+    def pool(self) -> PoolConfig:
+        if self._pool_cache is None:
+            self._pool_cache = PoolConfig()
+        return self._pool_cache
+
+    @property
+    def multiplexer(self) -> MultiplexerConfig:
+        if self._multiplexer_cache is None:
+            self._multiplexer_cache = MultiplexerConfig()
+        return self._multiplexer_cache
+
+    @property
+    def migration(self) -> MigrationConfig:
+        if self._migration_cache is None:
+            self._migration_cache = MigrationConfig()
+        return self._migration_cache
+
+    @property
+    def congestion(self) -> CongestionConfig:
+        if self._congestion_cache is None:
+            self._congestion_cache = CongestionConfig()
+        return self._congestion_cache
+
+    @property
+    def webtransport(self) -> WebTransportConfig:
+        if self._webtransport_cache is None:
+            self._webtransport_cache = WebTransportConfig()
+        return self._webtransport_cache
 
     def to_env_dict(self) -> dict[str, str]:
         """Export current configuration as environment variable dictionary."""
@@ -614,11 +462,15 @@ class InstantonConfig(BaseSettings):
 
         timeouts = self.timeouts
         result["INSTANTON_CONNECT_TIMEOUT"] = str(timeouts.connect_timeout)
-        result["INSTANTON_READ_TIMEOUT"] = str(timeouts.read_timeout) if timeouts.read_timeout else ""
+        result["INSTANTON_READ_TIMEOUT"] = (
+            str(timeouts.read_timeout) if timeouts.read_timeout else ""
+        )
         result["INSTANTON_WRITE_TIMEOUT"] = str(timeouts.write_timeout)
         result["INSTANTON_PING_INTERVAL"] = str(timeouts.ping_interval)
         result["INSTANTON_PING_TIMEOUT"] = str(timeouts.ping_timeout)
-        result["INSTANTON_REQUEST_TIMEOUT"] = str(timeouts.request_timeout) if timeouts.request_timeout else ""
+        result["INSTANTON_REQUEST_TIMEOUT"] = (
+            str(timeouts.request_timeout) if timeouts.request_timeout else ""
+        )
         result["INSTANTON_IDLE_TIMEOUT"] = str(timeouts.idle_timeout)
         result["INSTANTON_WS_CLOSE_TIMEOUT"] = str(timeouts.ws_close_timeout)
         result["INSTANTON_WS_RECEIVE_TIMEOUT"] = str(timeouts.ws_receive_timeout)
@@ -697,6 +549,49 @@ class InstantonConfig(BaseSettings):
                 "subdomain_grace_period": self.resources.subdomain_grace_period,
                 "cleanup_interval": self.resources.cleanup_interval,
                 "chunk_stream_ttl": self.resources.chunk_stream_ttl,
+            },
+            "quic": {
+                "enable_0rtt": self.quic.enable_0rtt,
+                "session_ticket_path": self.quic.session_ticket_path,
+                "session_ticket_ttl": self.quic.session_ticket_ttl,
+                "max_session_tickets": self.quic.max_session_tickets,
+                "enable_connection_migration": self.quic.enable_connection_migration,
+                "max_datagram_frame_size": self.quic.max_datagram_frame_size,
+            },
+            "adaptive_buffer": {
+                "enabled": self.adaptive_buffer.enabled,
+                "min_size": self.adaptive_buffer.min_size,
+                "max_size": self.adaptive_buffer.max_size,
+                "target_latency_ms": self.adaptive_buffer.target_latency_ms,
+                "low_latency_threshold_ms": self.adaptive_buffer.low_latency_threshold_ms,
+                "sample_window": self.adaptive_buffer.sample_window,
+            },
+            "parallel": {
+                "enabled": self.parallel.enabled,
+                "max_concurrent_tasks": self.parallel.max_concurrent_tasks,
+                "batch_size": self.parallel.batch_size,
+            },
+            "pool": {
+                "enabled": self.pool.enabled,
+                "max_tunnels_per_connection": self.pool.max_tunnels_per_connection,
+                "idle_timeout": self.pool.idle_timeout,
+                "cleanup_interval": self.pool.cleanup_interval,
+            },
+            "multiplexer": {
+                "enabled": self.multiplexer.enabled,
+                "max_streams": self.multiplexer.max_streams,
+            },
+            "migration": {
+                "enabled": self.migration.enabled,
+                "check_interval": self.migration.check_interval,
+            },
+            "congestion": {
+                "enabled": self.congestion.enabled,
+                "initial_cwnd": self.congestion.initial_cwnd,
+            },
+            "webtransport": {
+                "enabled": self.webtransport.enabled,
+                "max_sessions": self.webtransport.max_sessions,
             },
         }
 

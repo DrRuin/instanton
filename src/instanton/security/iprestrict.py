@@ -55,18 +55,10 @@ class IPRestrictor:
     deny: Sequence[str] = field(default_factory=list)
     default_policy: IPPolicy = IPPolicy.ALLOW
 
-    _allow_networks: list[IPv4Network | IPv6Network] = field(
-        default_factory=list, init=False
-    )
-    _deny_networks: list[IPv4Network | IPv6Network] = field(
-        default_factory=list, init=False
-    )
-    _allow_exact: set[IPv4Address | IPv6Address] = field(
-        default_factory=set, init=False
-    )
-    _deny_exact: set[IPv4Address | IPv6Address] = field(
-        default_factory=set, init=False
-    )
+    _allow_networks: list[IPv4Network | IPv6Network] = field(default_factory=list, init=False)
+    _deny_networks: list[IPv4Network | IPv6Network] = field(default_factory=list, init=False)
+    _allow_exact: set[IPv4Address | IPv6Address] = field(default_factory=set, init=False)
+    _deny_exact: set[IPv4Address | IPv6Address] = field(default_factory=set, init=False)
 
     def __post_init__(self) -> None:
         """Parse and optimize rule lists."""

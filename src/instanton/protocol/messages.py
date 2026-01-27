@@ -7,8 +7,6 @@ from functools import lru_cache
 from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID, uuid4
 
-import brotli
-import lz4.frame
 import msgpack
 import zstandard as zstd
 from pydantic import BaseModel, Field
@@ -56,15 +54,68 @@ CHUNK_SIZE = _DEFAULT_CHUNK_SIZE
 MIN_COMPRESSION_SIZE = _DEFAULT_MIN_COMPRESSION_SIZE
 MAX_DECOMPRESSED_SIZE = _DEFAULT_MAX_DECOMPRESSED_SIZE
 SKIP_COMPRESSION_TYPES = {
-    "image/", "video/", "audio/", "application/zip", "application/gzip",
-    "application/x-rar", "application/x-7z", "application/pdf",
+    "image/",
+    "video/",
+    "audio/",
+    "application/zip",
+    "application/gzip",
+    "application/x-rar",
+    "application/x-7z",
+    "application/pdf",
     "application/octet-stream",
 }
+SKIP_COMPRESSION_EXTENSIONS = frozenset(
+    {
+        ".zip",
+        ".gz",
+        ".bz2",
+        ".xz",
+        ".7z",
+        ".rar",
+        ".tar.gz",
+        ".tgz",
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".webp",
+        ".avif",
+        ".heic",
+        ".ico",
+        ".mp4",
+        ".mkv",
+        ".avi",
+        ".mov",
+        ".webm",
+        ".flv",
+        ".wmv",
+        ".m4v",
+        ".mp3",
+        ".aac",
+        ".ogg",
+        ".flac",
+        ".wav",
+        ".wma",
+        ".m4a",
+        ".pdf",
+        ".epub",
+        ".mobi",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".otf",
+        ".eot",
+        ".br",
+        ".zst",
+        ".lz4",
+    }
+)
 
 
-def _get_perf_config() -> "PerformanceConfig":
+def _get_perf_config() -> PerformanceConfig:
     """Get performance config (lazy import to avoid circular imports)."""
     from instanton.core.config import get_config
+
     return get_config().performance
 
 
@@ -98,36 +149,117 @@ def get_compression_level() -> int:
     return _get_perf_config().compression_level
 
 
-_zstd_decompressor = zstd.ZstdDecompressor()
+_ZSTD_DICT_SAMPLES = [
+    b'{"type":"http_request"',
+    b'{"type":"http_response"',
+    b'{"type":"negotiate"',
+    b'{"type":"negotiate_response"',
+    b'{"type":"connect"',
+    b'{"type":"connected"',
+    b'{"type":"chunk_start"',
+    b'{"type":"chunk_data"',
+    b'{"type":"chunk_end"',
+    b'{"type":"ping"',
+    b'{"type":"pong"',
+    b'{"type":"disconnect"',
+    b'{"type":"websocket_upgrade"',
+    b'{"type":"websocket_frame"',
+    b'"headers":{',
+    b'"Content-Type":',
+    b'"application/json"',
+    b'"text/html"',
+    b'"text/plain"',
+    b'"application/octet-stream"',
+    b'"status":',
+    b'"body":',
+    b'"method":"GET"',
+    b'"method":"POST"',
+    b'"method":"PUT"',
+    b'"method":"DELETE"',
+    b'"method":"PATCH"',
+    b'"path":"/',
+    b'"request_id":',
+    b'"stream_id":',
+    b'"tunnel_id":',
+    b'"sequence":',
+    b'"timestamp":',
+    b"200",
+    b"201",
+    b"204",
+    b"301",
+    b"302",
+    b"304",
+    b"400",
+    b"401",
+    b"403",
+    b"404",
+    b"500",
+    b'"Accept":',
+    b'"Accept-Encoding":',
+    b'"User-Agent":',
+    b'"Host":',
+    b'"Connection":',
+    b'"Cache-Control":',
+    b'"Authorization":',
+    b"gzip, deflate, br",
+]
+
+try:
+    _zstd_dict = zstd.train_dictionary(32768, _ZSTD_DICT_SAMPLES)
+except Exception:
+    _zstd_dict = zstd.ZstdCompressionDict(b"".join(_ZSTD_DICT_SAMPLES))
+
+_zstd_decompressor = zstd.ZstdDecompressor(dict_data=_zstd_dict)
 
 
 @lru_cache(maxsize=20)
 def _get_zstd_compressor(level: int) -> zstd.ZstdCompressor:
     """Get a cached ZSTD compressor for the given level."""
-    return zstd.ZstdCompressor(level=level)
+    return zstd.ZstdCompressor(level=level, dict_data=_zstd_dict)
+
+
+def _get_adaptive_level(data_size: int, base_level: int) -> int:
+    """Get compression level based on data size - faster for larger payloads."""
+    if data_size > 1024 * 1024:
+        return max(1, base_level - 2)
+    elif data_size > 256 * 1024:
+        return max(1, base_level - 1)
+    return base_level
 
 
 def compress_data(data: bytes, compression: CompressionType) -> bytes:
-    """Compress data using the specified algorithm."""
+    """Compress data using the specified algorithm with adaptive levels."""
     if compression == CompressionType.NONE:
         return data
-    elif compression == CompressionType.LZ4:
+
+    data_size = len(data)
+    base_level = get_compression_level()
+
+    if compression == CompressionType.LZ4:
+        import lz4.frame
+
         return lz4.frame.compress(data)
     elif compression == CompressionType.ZSTD:
-        level = get_compression_level()
+        level = _get_adaptive_level(data_size, base_level)
         return _get_zstd_compressor(level).compress(data)
     elif compression == CompressionType.BROTLI:
-        level = get_compression_level()
+        import brotli
+
+        level = _get_adaptive_level(data_size, base_level)
         quality = min(max(level // 2 + 1, 1), 11)
         return brotli.compress(data, quality=quality)
     elif compression == CompressionType.GZIP:
         import gzip
-        return gzip.compress(data, compresslevel=min(get_compression_level(), 9))
+
+        level = _get_adaptive_level(data_size, base_level)
+        return gzip.compress(data, compresslevel=min(level, 9))
     else:
         raise ValueError(f"Unsupported compression type: {compression}")
 
 
-def decompress_data(data: bytes, compression: CompressionType, max_size: int = MAX_DECOMPRESSED_SIZE) -> bytes:
+def decompress_data(
+    data: bytes, compression: CompressionType, max_size: int = MAX_DECOMPRESSED_SIZE
+) -> bytes:
     """Decompress data using the specified algorithm with size limit protection.
 
     Args:
@@ -148,27 +280,40 @@ def decompress_data(data: bytes, compression: CompressionType, max_size: int = M
         if compression == CompressionType.GZIP:
             import gzip
             import io
+
             with gzip.GzipFile(fileobj=io.BytesIO(data)) as f:
                 result = b""
                 while chunk := f.read(65536):
                     result += chunk
                     if len(result) > max_size:
-                        raise ValueError(f"Decompressed size exceeds {max_size} bytes (compression bomb protection)")
+                        raise ValueError(
+                            f"Decompressed size exceeds {max_size} bytes (compression bomb protection)"
+                        )
                 return result
         elif compression == CompressionType.LZ4:
+            import lz4.frame
+
             result = lz4.frame.decompress(data, max_output_size=max_size)
             if len(result) > max_size:
-                raise ValueError(f"Decompressed size exceeds {max_size} bytes (compression bomb protection)")
+                raise ValueError(
+                    f"Decompressed size exceeds {max_size} bytes (compression bomb protection)"
+                )
             return result
         elif compression == CompressionType.ZSTD:
             result = _zstd_decompressor.decompress(data, max_output_size=max_size)
             if len(result) > max_size:
-                raise ValueError(f"Decompressed size exceeds {max_size} bytes (compression bomb protection)")
+                raise ValueError(
+                    f"Decompressed size exceeds {max_size} bytes (compression bomb protection)"
+                )
             return result
         elif compression == CompressionType.BROTLI:
+            import brotli
+
             result = brotli.decompress(data)
             if len(result) > max_size:
-                raise ValueError(f"Decompressed size exceeds {max_size} bytes (compression bomb protection)")
+                raise ValueError(
+                    f"Decompressed size exceeds {max_size} bytes (compression bomb protection)"
+                )
             return result
         else:
             raise ValueError(f"Unsupported compression type: {compression}")
@@ -448,6 +593,15 @@ def _serialize_for_msgpack(data: Any) -> Any:
     return data
 
 
+def _check_path_extension(path: str) -> bool:
+    """Check if path has a compressed file extension."""
+    path_lower = path.lower().split("?")[0]
+    for ext in SKIP_COMPRESSION_EXTENSIONS:
+        if path_lower.endswith(ext):
+            return True
+    return False
+
+
 def _should_skip_compression(msg: BaseModel, payload_size: int) -> bool:
     """Check if compression should be skipped."""
     if not is_compression_enabled():
@@ -472,7 +626,6 @@ def _should_skip_compression(msg: BaseModel, payload_size: int) -> bool:
             elif k_lower == "content-encoding":
                 content_encoding = v.lower()
 
-        # Skip if already compressed via Content-Encoding (double compression prevention)
         if content_encoding in ("gzip", "deflate", "br", "compress", "zstd"):
             return True
 
@@ -481,7 +634,14 @@ def _should_skip_compression(msg: BaseModel, payload_size: int) -> bool:
             if skip_type in content_type:
                 return True
 
+        path = getattr(msg, "path", "")
+        if path and _check_path_extension(path):
+            return True
+
     return False
+
+
+_HEADER_SIZE = 10
 
 
 def encode_message(
@@ -503,37 +663,40 @@ def encode_message(
     else:
         compression = CompressionType.NONE
 
-    frame = bytearray()
-    frame.extend(MAGIC)
-    frame.append(PROTOCOL_VERSION)
-    frame.append(compression)
-    frame.extend(len(payload).to_bytes(4, "little"))
-    frame.extend(payload)
+    payload_len = len(payload)
+    frame = bytearray(_HEADER_SIZE + payload_len)
+    frame[0:4] = MAGIC
+    frame[4] = PROTOCOL_VERSION
+    frame[5] = compression
+    frame[6:10] = payload_len.to_bytes(4, "little")
+    frame[10:] = payload
 
     return bytes(frame)
 
 
-def decode_message(data: bytes) -> dict[str, Any]:
+def decode_message(data: bytes | memoryview) -> dict[str, Any]:
     """Decode a framed message with automatic decompression."""
-    if len(data) < 10:
+    if len(data) < _HEADER_SIZE:
         raise ValueError("Message too short")
 
-    if data[:4] != MAGIC:
+    view = memoryview(data) if not isinstance(data, memoryview) else data
+
+    if bytes(view[:4]) != MAGIC:
         raise ValueError("Invalid magic bytes")
 
-    version = data[4]
+    version = view[4]
     if version > PROTOCOL_VERSION:
         raise ValueError(f"Unsupported protocol version: {version}")
 
-    flags = data[5]
+    flags = view[5]
     compression = CompressionType(flags & 0x03)
 
-    length = int.from_bytes(data[6:10], "little")
+    length = int.from_bytes(bytes(view[6:10]), "little")
     max_size = get_max_message_size()
     if length > max_size:
         raise ValueError(f"Message too large: {length} bytes (max: {max_size})")
 
-    payload = data[10 : 10 + length]
+    payload = bytes(view[_HEADER_SIZE : _HEADER_SIZE + length])
 
     if compression != CompressionType.NONE:
         payload = decompress_data(payload, compression)
@@ -567,9 +730,8 @@ def parse_message(data: bytes) -> BaseModel:
 
 
 class ChunkAssembler:
-    """Assembles chunked data streams with TTL-based cleanup to prevent memory leaks."""
-
     def __init__(self) -> None:
+        import asyncio
         import time
 
         self.streams: dict[UUID, list[tuple[int, bytes]]] = {}
@@ -577,24 +739,33 @@ class ChunkAssembler:
         self._stream_sizes: dict[UUID, int] = {}
         self._stream_created: dict[UUID, float] = {}
         self._time = time
+        self._asyncio = asyncio
+        self._lock = asyncio.Lock()
+        self._chunks_processed = 0
+        self._parallel_batches = 0
 
     def _get_max_stream_age(self) -> float:
-        """Get max stream age from config."""
         from instanton.core.config import get_config
+
         return get_config().resources.chunk_stream_ttl
 
     def _get_max_stream_size(self) -> int:
-        """Get max stream size from config."""
         from instanton.core.config import get_config
+
         return get_config().performance.http_max_body_size
 
     def _get_max_concurrent_streams(self) -> int:
-        """Get max concurrent streams from config."""
         from instanton.core.config import get_config
+
         return get_config().resources.max_concurrent_streams
 
+    def _get_parallel_config(self) -> tuple[bool, int, int]:
+        from instanton.core.config import get_config
+
+        cfg = get_config().parallel
+        return cfg.enabled, cfg.max_concurrent_tasks, cfg.batch_size
+
     def _cleanup_expired_streams(self) -> None:
-        """Remove streams that have exceeded the maximum age."""
         now = self._time.monotonic()
         max_age = self._get_max_stream_age()
         expired = [
@@ -609,63 +780,123 @@ class ChunkAssembler:
             self._stream_created.pop(stream_id, None)
 
     def start_stream(self, start_msg: ChunkStart) -> None:
-        """Register a new stream."""
         self._cleanup_expired_streams()
-
         max_streams = self._get_max_concurrent_streams()
         if len(self.streams) >= max_streams:
             raise ValueError(f"Too many concurrent streams (max: {max_streams})")
-
         self.streams[start_msg.stream_id] = []
         self.metadata[start_msg.stream_id] = start_msg
         self._stream_sizes[start_msg.stream_id] = 0
         self._stream_created[start_msg.stream_id] = self._time.monotonic()
 
     def add_chunk(self, chunk: ChunkData) -> bool:
-        """Add a chunk to a stream. Returns True if stream is complete."""
         if chunk.stream_id not in self.streams:
             raise ValueError(f"Unknown stream: {chunk.stream_id}")
-
         max_size = self._get_max_stream_size()
         new_size = self._stream_sizes[chunk.stream_id] + len(chunk.data)
         if new_size > max_size:
             self.abort_stream(chunk.stream_id)
             raise ValueError(f"Stream {chunk.stream_id} exceeds maximum size ({max_size} bytes)")
-
         self.streams[chunk.stream_id].append((chunk.sequence, chunk.data))
         self._stream_sizes[chunk.stream_id] = new_size
+        self._chunks_processed += 1
         return chunk.is_final
 
+    async def add_chunk_async(self, chunk: ChunkData) -> bool:
+        async with self._lock:
+            return self.add_chunk(chunk)
+
+    async def add_chunks_parallel(self, chunks: list[ChunkData]) -> dict[UUID, bool]:
+        enabled, max_tasks, batch_size = self._get_parallel_config()
+
+        if not enabled or len(chunks) <= 1:
+            results = {}
+            for chunk in chunks:
+                try:
+                    results[chunk.stream_id] = self.add_chunk(chunk)
+                except ValueError:
+                    results[chunk.stream_id] = False
+            return results
+
+        results: dict[UUID, bool] = {}
+        self._parallel_batches += 1
+
+        async def process_chunk(chunk: ChunkData) -> tuple[UUID, bool]:
+            async with self._lock:
+                try:
+                    is_complete = self.add_chunk(chunk)
+                    return chunk.stream_id, is_complete
+                except ValueError:
+                    return chunk.stream_id, False
+
+        try:
+            async with self._asyncio.TaskGroup() as tg:
+                tasks = []
+                for i, chunk in enumerate(chunks[:max_tasks]):
+                    task = tg.create_task(process_chunk(chunk))
+                    tasks.append(task)
+
+            for task in tasks:
+                stream_id, is_complete = task.result()
+                results[stream_id] = is_complete
+
+            for chunk in chunks[max_tasks:]:
+                try:
+                    results[chunk.stream_id] = self.add_chunk(chunk)
+                except ValueError:
+                    results[chunk.stream_id] = False
+
+        except AttributeError:
+            tasks = [process_chunk(chunk) for chunk in chunks[:max_tasks]]
+            completed = await self._asyncio.gather(*tasks, return_exceptions=True)
+
+            for result in completed:
+                if isinstance(result, tuple):
+                    stream_id, is_complete = result
+                    results[stream_id] = is_complete
+
+            for chunk in chunks[max_tasks:]:
+                try:
+                    results[chunk.stream_id] = self.add_chunk(chunk)
+                except ValueError:
+                    results[chunk.stream_id] = False
+
+        return results
+
     def end_stream(self, end_msg: ChunkEnd) -> bytes:
-        """Finalize and assemble a stream."""
         if end_msg.stream_id not in self.streams:
             raise ValueError(f"Unknown stream: {end_msg.stream_id}")
-
         chunks = self.streams.pop(end_msg.stream_id)
         self.metadata.pop(end_msg.stream_id, None)
         self._stream_sizes.pop(end_msg.stream_id, None)
         self._stream_created.pop(end_msg.stream_id, None)
-
         chunks.sort(key=lambda x: x[0])
         return b"".join(data for _, data in chunks)
 
+    async def end_stream_async(self, end_msg: ChunkEnd) -> bytes:
+        async with self._lock:
+            return self.end_stream(end_msg)
+
     def abort_stream(self, stream_id: UUID) -> None:
-        """Abort and clean up a stream."""
         self.streams.pop(stream_id, None)
         self.metadata.pop(stream_id, None)
         self._stream_sizes.pop(stream_id, None)
         self._stream_created.pop(stream_id, None)
 
     def get_stream_info(self, stream_id: UUID) -> ChunkStart | None:
-        """Get metadata about an active stream."""
         return self.metadata.get(stream_id)
 
     def get_active_stream_count(self) -> int:
-        """Get number of active streams."""
         return len(self.streams)
 
+    def get_stats(self) -> dict[str, Any]:
+        return {
+            "active_streams": len(self.streams),
+            "chunks_processed": self._chunks_processed,
+            "parallel_batches": self._parallel_batches,
+        }
+
     def cleanup_all(self) -> None:
-        """Clean up all streams (for shutdown)."""
         self.streams.clear()
         self.metadata.clear()
         self._stream_sizes.clear()

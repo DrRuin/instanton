@@ -130,8 +130,7 @@ def create_provider(
 
     else:
         raise ValueError(
-            f"Unknown provider type: {provider_type}. "
-            "Supported: 'github', 'google', 'oidc'"
+            f"Unknown provider type: {provider_type}. Supported: 'github', 'google', 'oidc'"
         )
 
 

@@ -2,8 +2,8 @@
 
 from instanton.observability.dashboard.broadcaster import DashboardBroadcaster
 from instanton.observability.dashboard.collector import (
-    MetricSnapshot,
     MetricsCollector,
+    MetricSnapshot,
     TunnelInfo,
 )
 from instanton.observability.dashboard.handler import DashboardHandler

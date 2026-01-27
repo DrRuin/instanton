@@ -28,7 +28,7 @@ class TestPerformanceConfig:
         assert config.max_message_size == 64 * 1024 * 1024
         assert config.compression_enabled is True
         assert config.compression_level == 3
-        assert config.ws_max_size == 128 * 1024 * 1024
+        assert config.ws_max_size == 2 * 1024 * 1024 * 1024  # 2GB for large file support
 
     def test_env_override_chunk_size(self) -> None:
         """Test INSTANTON_CHUNK_SIZE env var."""
