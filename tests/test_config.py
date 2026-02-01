@@ -57,7 +57,7 @@ class TestTimeoutConfig:
         config = TimeoutConfig()
         assert config.connect_timeout == 30.0
         assert config.read_timeout is None
-        assert config.write_timeout == 5.0
+        assert config.write_timeout == 60.0
         assert config.ping_interval == 30.0
         assert config.ping_timeout == 15.0
         assert config.request_timeout == 600.0

@@ -295,7 +295,7 @@ class TimeoutConfig(BaseSettings):
 
     connect_timeout: float = 30.0
     read_timeout: float | None = None
-    write_timeout: float = 5.0
+    write_timeout: float = 60.0
     ping_interval: float = 30.0
     ping_timeout: float = 15.0
     request_timeout: float | None = 600.0

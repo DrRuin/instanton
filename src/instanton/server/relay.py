@@ -46,6 +46,7 @@ from instanton.protocol.messages import (
     ConnectResponse,
     ErrorCode,
     HttpRequest,
+    HttpRequestStream,
     HttpResponse,
     NegotiateRequest,
     Pong,
@@ -1572,23 +1573,78 @@ class RelayServer:
         self._pending_requests[request_id] = ctx
 
         try:
-            body = await request.read()
+            config = get_config()
+            stream_threshold = config.performance.stream_request_threshold
+            chunk_size = config.performance.stream_chunk_size
+            content_length = request.content_length or 0
 
-            if is_grpc_request:
-                BYTES_TRANSFERRED.labels(direction="in", protocol="grpc").inc(len(body))
+            if content_length > stream_threshold:
+                stream_id = uuid4()
+                stream_request = HttpRequestStream(
+                    request_id=request_id,
+                    stream_id=stream_id,
+                    method=request.method,
+                    path=request.path_qs,
+                    headers=headers,
+                    content_length=content_length,
+                )
+                msg_bytes = encode_message(stream_request, tunnel.compression)
+                await tunnel.websocket.send_bytes(msg_bytes)
+                tunnel.bytes_sent += len(msg_bytes)
+
+                chunk_start = ChunkStart(
+                    stream_id=stream_id,
+                    request_id=request_id,
+                    total_size=content_length,
+                    content_type=request.content_type or "application/octet-stream",
+                )
+                msg_bytes = encode_message(chunk_start, tunnel.compression)
+                await tunnel.websocket.send_bytes(msg_bytes)
+                tunnel.bytes_sent += len(msg_bytes)
+
+                total_read = 0
+                chunk_index = 0
+                async for chunk in request.content.iter_chunked(chunk_size):
+                    chunk_data = ChunkData(
+                        stream_id=stream_id,
+                        sequence=chunk_index,
+                        data=chunk,
+                    )
+                    msg_bytes = encode_message(chunk_data, tunnel.compression)
+                    await tunnel.websocket.send_bytes(msg_bytes)
+                    tunnel.bytes_sent += len(msg_bytes)
+                    total_read += len(chunk)
+                    chunk_index += 1
+
+                chunk_end = ChunkEnd(
+                    stream_id=stream_id,
+                    request_id=request_id,
+                    total_chunks=chunk_index,
+                )
+                msg_bytes = encode_message(chunk_end, tunnel.compression)
+                await tunnel.websocket.send_bytes(msg_bytes)
+                tunnel.bytes_sent += len(msg_bytes)
+
+                protocol = "grpc" if is_grpc_request else "http"
+                BYTES_TRANSFERRED.labels(direction="in", protocol=protocol).inc(total_read)
             else:
-                BYTES_TRANSFERRED.labels(direction="in", protocol="http").inc(len(body))
+                body = await request.read()
 
-            http_request = HttpRequest(
-                request_id=request_id,
-                method=request.method,
-                path=request.path_qs,
-                headers=headers,
-                body=body,
-            )
-            msg_bytes = encode_message(http_request, tunnel.compression)
-            await tunnel.websocket.send_bytes(msg_bytes)
-            tunnel.bytes_sent += len(msg_bytes)
+                if is_grpc_request:
+                    BYTES_TRANSFERRED.labels(direction="in", protocol="grpc").inc(len(body))
+                else:
+                    BYTES_TRANSFERRED.labels(direction="in", protocol="http").inc(len(body))
+
+                http_request = HttpRequest(
+                    request_id=request_id,
+                    method=request.method,
+                    path=request.path_qs,
+                    headers=headers,
+                    body=body,
+                )
+                msg_bytes = encode_message(http_request, tunnel.compression)
+                await tunnel.websocket.send_bytes(msg_bytes)
+                tunnel.bytes_sent += len(msg_bytes)
 
             tunnel.request_count += 1
             tunnel.last_activity = datetime.now(UTC)
