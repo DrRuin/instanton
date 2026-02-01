@@ -1,137 +1,176 @@
-# Instanton Docker Deployment
+# 🐳 Instanton Docker Deployment
 
-Quick start guide for running Instanton with Docker.
+<p align="center">
+  <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker"/>
+  <img src="https://img.shields.io/badge/Self--Hosted-Yes-success?style=for-the-badge" alt="Self-Hosted"/>
+  <img src="https://img.shields.io/badge/OAuth-Supported-blueviolet?style=for-the-badge" alt="OAuth"/>
+</p>
 
-## Quick Start
+<p align="center">
+  <strong>Run your own Instanton relay server in minutes.</strong>
+</p>
 
-### Run the Tunnel Client
+---
+
+## ⚡ Quick Start
+
+### 1. Setup Certificates
+
+**Production (Let's Encrypt + Certbot):**
 
 ```bash
-# Connect to public relay
-docker run --rm -it --network host instanton/instanton --port 8000
+# Install certbot
+sudo apt install certbot
 
-# With custom subdomain
-docker run --rm -it --network host instanton/instanton --port 8000 --subdomain myapp
+# Get certificate (DNS must point to your VPS first)
+sudo certbot certonly --standalone -d tunnel.yourdomain.com
+
+# Link certs to instanton directory
+mkdir -p certs
+sudo cp /etc/letsencrypt/live/tunnel.yourdomain.com/fullchain.pem certs/cert.pem
+sudo cp /etc/letsencrypt/live/tunnel.yourdomain.com/privkey.pem certs/key.pem
+sudo chown $USER:$USER certs/*.pem
 ```
 
-### Run the Relay Server (Self-Hosted)
+**Development (self-signed):**
+
+```bash
+mkdir -p certs
+openssl req -x509 -newkey rsa:4096 -keyout certs/key.pem -out certs/cert.pem -days 365 -nodes -subj "/CN=localhost"
+```
+
+### 2. Run the Server
 
 ```bash
 docker run -d \
   -p 443:443 \
   -p 4443:4443 \
-  -p 9090:9090 \
   -v ./certs:/certs:ro \
-  instanton/instanton-server \
-  --domain tunnel.example.com
+  -e INSTANTON_DOMAIN=tunnel.example.com \
+  ghcr.io/drruin/instanton-server
 ```
 
-## Docker Compose
-
-> **IMPORTANT**: Use `docker compose` (V2, with space) instead of `docker-compose` (V1, with hyphen).
-> The legacy docker-compose V1 has compatibility issues with newer Docker versions.
-
-For a complete setup with monitoring, use the docker-compose.yml in the project root:
+### 3. Connect a Client
 
 ```bash
-# Start relay server only
-docker compose up -d instanton-server
-
-# Start with monitoring (Prometheus + Grafana)
-docker compose --profile monitoring up -d
-
-# Start with example app
-docker compose --profile example up -d
+pip install instanton
+instanton --port 8000 --server tunnel.example.com:4443
 ```
 
-## Configuration
+**Done.** Your self-hosted tunnel is live.
+
+---
+
+## 🏗️ Docker Compose
+
+> **Note:** Use `docker compose` (V2) not `docker-compose` (V1)
+
+### Basic Setup
+
+```bash
+# Clone the repo
+git clone https://github.com/DrRuin/instanton.git
+cd instanton
+
+# Create certificates
+mkdir -p certs
+openssl req -x509 -newkey rsa:4096 -keyout certs/key.pem -out certs/cert.pem -days 365 -nodes -subj "/CN=localhost"
+
+# Start the server
+docker compose up -d instanton-server
+
+# With monitoring (Prometheus + Grafana)
+docker compose --profile monitoring up -d
+```
 
 ### Environment Variables
 
+Create a `.env` file:
+
+```bash
+INSTANTON_DOMAIN=tunnel.mycompany.com
+INSTANTON_LOG_LEVEL=info
+INSTANTON_REQUEST_TIMEOUT=0  # 0 = no timeout (streaming)
+```
+
+---
+
+## ⚙️ Configuration
+
+### Server Options
+
 | Variable | Description | Default |
-|----------|-------------|---------|
-| `INSTANTON_DOMAIN` | Domain for the relay server | `localhost` |
-| `INSTANTON_LOG_LEVEL` | Log level (debug, info, warn, error) | `info` |
-| `INSTANTON_AUTH_TOKEN` | Authentication token for clients | - |
-| `INSTANTON_SERVER` | Relay server address (for client) | `instanton.tech:4443` |
-| `INSTANTON_REQUEST_TIMEOUT` | Request timeout in seconds (0=indefinite) | `120` |
-
-### OAuth/OIDC Environment Variables (Self-Hosted)
-
-| Variable | Description | Example |
-|----------|-------------|---------|
-| `INSTANTON_OAUTH_PROVIDER` | OAuth provider type | `github`, `google`, `oidc` |
-| `INSTANTON_OAUTH_CLIENT_ID` | OAuth client ID | `Iv1.abc123...` |
-| `INSTANTON_OAUTH_CLIENT_SECRET` | OAuth client secret | `secret123...` |
-| `INSTANTON_OAUTH_ISSUER_URL` | OIDC issuer URL (required for `oidc` provider) | `https://accounts.google.com` |
-| `INSTANTON_OAUTH_ALLOWED_DOMAINS` | Comma-separated allowed email domains | `mycompany.com,partner.com` |
-| `INSTANTON_OAUTH_ALLOWED_EMAILS` | Comma-separated allowed emails | `admin@other.com` |
-| `INSTANTON_OAUTH_SESSION_DURATION` | Session duration in seconds | `86400` (24 hours) |
-
-### Volumes
-
-| Path | Description |
-|------|-------------|
-| `/certs` | TLS certificates (cert.pem, key.pem) |
-| `/data` | Persistent data storage |
+|:--|:--|:--|
+| `INSTANTON_DOMAIN` | Base domain for tunnels | Required |
+| `INSTANTON_LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` |
+| `INSTANTON_REQUEST_TIMEOUT` | Seconds (0 = indefinite) | `120` |
 
 ### Ports
 
 | Port | Description |
-|------|-------------|
-| 443 | HTTPS (public traffic) |
-| 4443 | Control plane (tunnel clients connect here) |
-| 9090 | Prometheus metrics |
+|:--|:--|
+| `443` | HTTPS (public traffic) |
+| `4443` | Control plane (client connections) |
+| `9090` | Prometheus metrics |
 
-## OAuth/OIDC Authentication (Self-Hosted)
+### Volumes
 
-Instanton supports OAuth 2.0 / OpenID Connect authentication for self-hosted deployments. This allows organizations to require users to authenticate via their identity provider before accessing tunneled services.
+| Path | Description |
+|:--|:--|
+| `/certs` | TLS certificates (`cert.pem`, `key.pem`) |
+| `/data` | Persistent data storage |
+
+---
+
+## 🔐 OAuth Authentication
+
+Require users to authenticate before accessing tunnels.
 
 ### Supported Providers
 
-- **GitHub** - OAuth 2.0 (no OIDC discovery)
-- **Google** - Full OIDC with discovery
-- **Generic OIDC** - Any OIDC-compliant provider (Okta, Auth0, Keycloak, Azure AD, etc.)
+| Provider | Type | Discovery |
+|:--|:--|:--|
+| **GitHub** | OAuth 2.0 | Manual |
+| **Google** | OIDC | Auto |
+| **Okta** | OIDC | Auto |
+| **Auth0** | OIDC | Auto |
+| **Azure AD** | OIDC | Auto |
+| **Keycloak** | OIDC | Auto |
 
-### GitHub OAuth Setup
-
-1. Go to GitHub > Settings > Developer settings > OAuth Apps > New OAuth App
-2. Set Authorization callback URL to: `https://your-domain.com/_instanton/oauth/callback`
-3. Copy the Client ID and Client Secret
+### GitHub Setup
 
 ```bash
-# .env file
+# .env
 INSTANTON_DOMAIN=tunnel.mycompany.com
 INSTANTON_OAUTH_PROVIDER=github
 INSTANTON_OAUTH_CLIENT_ID=Iv1.abc123...
-INSTANTON_OAUTH_CLIENT_SECRET=your-client-secret
+INSTANTON_OAUTH_CLIENT_SECRET=your-secret
 INSTANTON_OAUTH_ALLOWED_DOMAINS=mycompany.com
 ```
 
-```bash
-docker compose up -d instanton-server
-```
+1. Go to **GitHub > Settings > Developer settings > OAuth Apps**
+2. Set callback URL: `https://tunnel.mycompany.com/_instanton/oauth/callback`
+3. Copy Client ID and Secret to `.env`
 
-### Google OAuth Setup
-
-1. Go to Google Cloud Console > APIs & Services > Credentials
-2. Create OAuth 2.0 Client ID (Web application)
-3. Add authorized redirect URI: `https://your-domain.com/_instanton/oauth/callback`
-4. Copy the Client ID and Client Secret
+### Google Setup
 
 ```bash
-# .env file
+# .env
 INSTANTON_DOMAIN=tunnel.mycompany.com
 INSTANTON_OAUTH_PROVIDER=google
-INSTANTON_OAUTH_CLIENT_ID=123456789.apps.googleusercontent.com
+INSTANTON_OAUTH_CLIENT_ID=123456.apps.googleusercontent.com
 INSTANTON_OAUTH_CLIENT_SECRET=GOCSPX-...
 INSTANTON_OAUTH_ALLOWED_DOMAINS=mycompany.com
 ```
 
-### Generic OIDC Setup (Okta, Auth0, Keycloak)
+1. Go to **Google Cloud Console > APIs & Services > Credentials**
+2. Create OAuth 2.0 Client ID (Web application)
+3. Add redirect URI: `https://tunnel.mycompany.com/_instanton/oauth/callback`
+
+### Generic OIDC (Okta, Auth0, Keycloak)
 
 ```bash
-# .env file for Okta
+# .env
 INSTANTON_DOMAIN=tunnel.mycompany.com
 INSTANTON_OAUTH_PROVIDER=oidc
 INSTANTON_OAUTH_ISSUER_URL=https://mycompany.okta.com
@@ -142,8 +181,6 @@ INSTANTON_OAUTH_ALLOWED_DOMAINS=mycompany.com
 
 ### Access Control
 
-You can restrict access by email domain or specific emails:
-
 ```bash
 # Allow only @mycompany.com emails
 INSTANTON_OAUTH_ALLOWED_DOMAINS=mycompany.com
@@ -152,43 +189,71 @@ INSTANTON_OAUTH_ALLOWED_DOMAINS=mycompany.com
 INSTANTON_OAUTH_ALLOWED_DOMAINS=mycompany.com,partner.com
 
 # Allow specific emails
-INSTANTON_OAUTH_ALLOWED_EMAILS=external-contractor@gmail.com
+INSTANTON_OAUTH_ALLOWED_EMAILS=contractor@gmail.com
 
-# If both are empty, all authenticated users are allowed
+# If both empty → all authenticated users allowed
 ```
 
-### Security Features
+### OAuth Environment Variables
 
-The OAuth implementation includes:
+| Variable | Description |
+|:--|:--|
+| `INSTANTON_OAUTH_PROVIDER` | `github`, `google`, `oidc` |
+| `INSTANTON_OAUTH_CLIENT_ID` | OAuth Client ID |
+| `INSTANTON_OAUTH_CLIENT_SECRET` | OAuth Client Secret |
+| `INSTANTON_OAUTH_ISSUER_URL` | OIDC issuer (required for `oidc`) |
+| `INSTANTON_OAUTH_ALLOWED_DOMAINS` | Comma-separated domains |
+| `INSTANTON_OAUTH_ALLOWED_EMAILS` | Comma-separated emails |
+| `INSTANTON_OAUTH_SESSION_DURATION` | Session TTL in seconds (default: 86400) |
 
-- **PKCE (S256)** - Proof Key for Code Exchange prevents authorization code interception
-- **State Parameter** - CSRF protection with 5-minute expiration
-- **Nonce Validation** - Replay attack protection for OIDC
-- **JWT Signature Validation** - ID tokens validated using provider JWKS
-- **Open Redirect Prevention** - Redirect URLs validated to same origin
-- **Secure Cookies** - HttpOnly, Secure, SameSite=Lax
-- **Email Verification** - Only verified emails accepted
+---
 
-## Building Images
+## 🔒 Security Features
+
+<table>
+<tr>
+<td width="50%">
+
+### OAuth/OIDC
+- PKCE (S256) code exchange
+- State parameter (CSRF protection)
+- Nonce validation (replay protection)
+- JWT signature validation via JWKS
+- Secure cookies (HttpOnly, Secure, SameSite)
+
+</td>
+<td width="50%">
+
+### Infrastructure
+- Non-root container user
+- Read-only certificate mounts
+- TLS 1.3 encryption
+- Health check endpoints
+- Graceful shutdown
+
+</td>
+</tr>
+</table>
+
+---
+
+## 🏭 Building Images
 
 ```bash
-# Build client image
+# Client image
 docker build -t instanton/instanton -f Dockerfile .
 
-# Build server image
+# Server image
 docker build -t instanton/instanton-server -f Dockerfile.server .
 ```
 
-## Health Checks
+---
 
-Both images include health checks:
+## 📊 Monitoring
 
-- **Client**: Verifies Python import works
-- **Server**: HTTP check on `/health` endpoint
+### Prometheus
 
-## Prometheus Configuration
-
-The `prometheus.yml` in this folder is pre-configured to scrape metrics from the Instanton server:
+The included `prometheus.yml` scrapes metrics from the server:
 
 ```yaml
 scrape_configs:
@@ -197,45 +262,132 @@ scrape_configs:
       - targets: ['instanton-server:9090']
 ```
 
-## Security Notes
-
-- Both images run as non-root user `instanton`
-- TLS certificates should be mounted read-only
-- Use Docker secrets for sensitive configuration in production
-- OAuth client secrets should never be committed to version control
-- Use environment files (`.env`) and add them to `.gitignore`
-
-## Example: Complete OAuth Deployment
-
-Create a `.env` file:
+### Start with Monitoring
 
 ```bash
-# Domain configuration
-INSTANTON_DOMAIN=tunnel.mycompany.com
-
-# OAuth configuration (GitHub example)
-INSTANTON_OAUTH_PROVIDER=github
-INSTANTON_OAUTH_CLIENT_ID=Iv1.abc123
-INSTANTON_OAUTH_CLIENT_SECRET=your-secret-here
-INSTANTON_OAUTH_ALLOWED_DOMAINS=mycompany.com
-
-# Optional: session duration (default 24 hours)
-INSTANTON_OAUTH_SESSION_DURATION=86400
+docker compose --profile monitoring up -d
 ```
 
-Run:
+- **Prometheus:** http://localhost:9091
+- **Grafana:** http://localhost:3000 (admin/admin)
+
+---
+
+## 🩺 Health Checks
+
+| Endpoint | Description |
+|:--|:--|
+| `GET /health` | Server health status |
+| `GET /stats` | Active tunnel statistics |
+| `GET /metrics` | Prometheus metrics |
+
+---
+
+## 📁 File Structure
+
+```
+instanton/
+├── Dockerfile              # Client image
+├── Dockerfile.server       # Server image
+├── docker-compose.yml      # Main compose file
+├── docker-entrypoint.sh    # Server entrypoint
+├── certs/                  # Your certificates
+│   ├── cert.pem
+│   └── key.pem
+└── deploy/docker/
+    ├── README.md           # This file
+    ├── prometheus.yml      # Prometheus config
+    ├── docker-compose.oauth.yml
+    └── .env.oauth.example
+```
+
+---
+
+## 🚨 Troubleshooting
+
+### Certificate Issues
 
 ```bash
-# Start with OAuth enabled
-docker compose up -d instanton-server
+# Check certificate permissions
+docker exec instanton-server ls -la /app/certs/
 
-# Check logs
+# View server logs
 docker compose logs -f instanton-server
 ```
 
-Test:
+### Connection Refused
 
-1. Open `https://tunnel.mycompany.com` in browser
-2. You'll be redirected to GitHub/Google/OIDC provider
-3. After authentication, you'll have access to tunneled services
-4. Session persists for 24 hours (configurable)
+```bash
+# Verify ports are exposed
+docker ps
+netstat -tlnp | grep -E '443|4443'
+
+# Test health endpoint
+curl -k https://localhost:4443/health
+```
+
+### OAuth Not Working
+
+1. Verify callback URL matches exactly
+2. Check `INSTANTON_OAUTH_ALLOWED_DOMAINS` spelling
+3. Ensure client secret has no trailing whitespace
+
+---
+
+## 🔧 Advanced Configuration
+
+### Full docker-compose.yml
+
+```yaml
+services:
+  instanton-server:
+    image: ghcr.io/drruin/instanton-server:latest
+    ports:
+      - "443:443"
+      - "4443:4443"
+      - "9090:9090"
+    environment:
+      - INSTANTON_DOMAIN=${INSTANTON_DOMAIN}
+      - INSTANTON_REQUEST_TIMEOUT=0
+      - INSTANTON_OAUTH_PROVIDER=${INSTANTON_OAUTH_PROVIDER:-}
+      - INSTANTON_OAUTH_CLIENT_ID=${INSTANTON_OAUTH_CLIENT_ID:-}
+      - INSTANTON_OAUTH_CLIENT_SECRET=${INSTANTON_OAUTH_CLIENT_SECRET:-}
+      - INSTANTON_OAUTH_ALLOWED_DOMAINS=${INSTANTON_OAUTH_ALLOWED_DOMAINS:-}
+    volumes:
+      - ./certs:/certs:ro
+    restart: unless-stopped
+```
+
+### Certbot Auto-Renewal
+
+```bash
+# Create renewal hook to update certs
+sudo nano /etc/letsencrypt/renewal-hooks/deploy/instanton.sh
+```
+
+```bash
+#!/bin/bash
+cp /etc/letsencrypt/live/tunnel.yourdomain.com/fullchain.pem /path/to/instanton/certs/cert.pem
+cp /etc/letsencrypt/live/tunnel.yourdomain.com/privkey.pem /path/to/instanton/certs/key.pem
+docker restart instanton-server
+```
+
+```bash
+sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/instanton.sh
+```
+
+### Production Checklist
+
+- [ ] DNS A record pointing to VPS IP
+- [ ] Certbot certificates obtained
+- [ ] Auto-renewal hook configured
+- [ ] OAuth configured with allowed domains
+- [ ] `.env` added to `.gitignore`
+- [ ] Monitoring enabled
+- [ ] Firewall allows 443, 4443
+
+---
+
+<p align="center">
+  <sub>Life's too short for port forwarding.</sub>
+</p>

@@ -641,7 +641,7 @@ async def start_tcp_tunnel_cli(
 @click.argument("port", type=int)
 @click.option("--remote-port", "-r", type=int, help="Remote port to bind on server")
 @click.option("--server", default="instanton.tech", help="Instanton server address")
-@click.option("--quic/--no-quic", default=True, help="Use QUIC transport (recommended for UDP)")
+@click.option("--quic/--no-quic", default=False, help="Use QUIC transport (enable if server supports it)")
 @click.option(
     "--keepalive",
     "-k",
@@ -688,7 +688,7 @@ def udp(
 
         instanton udp 7777 --keepalive 5         # Fast keepalive for games
 
-        instanton udp 19132 --quic               # Minecraft Bedrock (QUIC recommended)
+        instanton udp 19132                       # Minecraft Bedrock
     """
     asyncio.run(
         start_udp_tunnel_cli(

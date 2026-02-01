@@ -480,7 +480,7 @@ class WebSocketTransport(Transport):
             if resolved_ip != host:
                 addr = f"{resolved_ip}:{port}"
 
-        url = self._build_url(addr)
+        url = self._build_url(addr, path or "/tunnel")
         logger.debug("Connecting via WebSocket", url=url)
 
         ssl_context = None
@@ -529,13 +529,13 @@ class WebSocketTransport(Transport):
             logger.error("Connection failed", url=url, error=str(e))
             raise TransportConnectionError(f"Failed to connect to {url}: {e}") from e
 
-    def _build_url(self, addr: str) -> str:
+    def _build_url(self, addr: str, path: str = "/tunnel") -> str:
         """Build WebSocket URL from address."""
         if addr.startswith("ws://") or addr.startswith("wss://"):
             return addr
         if ":" in addr:
-            return f"wss://{addr}/tunnel"
-        return f"wss://{addr}:4443/tunnel"
+            return f"wss://{addr}{path}"
+        return f"wss://{addr}:4443{path}"
 
     def _start_heartbeat(self) -> None:
         """Start the heartbeat task."""
@@ -1227,6 +1227,7 @@ class QuicTransport(Transport):
             verify_mode=ssl.CERT_REQUIRED if self._config.verify_ssl else ssl.CERT_NONE,
             idle_timeout=self._config.idle_timeout,
             max_datagram_frame_size=self._config.max_datagram_frame_size,
+            session_ticket=session_ticket,  # 0-RTT session resumption
         )
 
         server_name = self._config.server_name or host
@@ -1275,7 +1276,6 @@ class QuicTransport(Transport):
                 port,
                 configuration=configuration,
                 create_protocol=InstantonQuicProtocol,
-                session_ticket=session_ticket,  # Enable 0-RTT if we have a ticket
             ) as protocol:
                 self._protocol = protocol
                 self._quic = protocol._quic
